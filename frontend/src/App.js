@@ -1,4 +1,4 @@
-// client/src/App.js - TOUT LE FRONTEND EN UN SEUL FICHIER (FINAL V4 avec fix de l'ID d'upload)
+// client/src/App.js - TOUT LE FRONTEND EN UN SEUL FICHIER (FINAL V7 avec API URL fixée et lien public fixé)
 
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
@@ -9,7 +9,10 @@ import {
 } from 'react-bootstrap';
 import { QRCodeSVG } from 'qrcode.react'; 
 
-const API_URL = 'https://form-backend-pl5d.onrender.com/api';
+// 🎯 CORRECTION: L'API_URL doit pointer vers votre backend hébergé.
+const API_URL = 'https://form-backend-pl5d.onrender.com/api'; 
+// Note: Le lien public du formulaire est généré par le backend et stocké dans l'état,
+// pointant vers l'URL du frontend (https://startup-form.onrender.com/form/...)
 
 // --- PARTIE 1 : AUTHENTIFICATION (LOGIN/REGISTER) ---
 const Auth = ({ onAuthSuccess, apiUrl }) => {
@@ -117,22 +120,21 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, isNewForm, token, ap
 
     // LOGIQUE BASE64 : Envoyer la Data URL via JSON
     const handleLogoUpload = async () => {
-        // VÉRIFICATION EN LOGIQUE (MÊME SI LE BOUTON EST DÉSACTIVÉ)
         if (!logoFile) { 
             setUploadError("Veuillez d'abord sélectionner un fichier.");
             return;
         }
-        if (!form._id) { // Vérifie l'ID dans la logique
+        if (!form._id) { 
              setUploadError("Erreur: Le formulaire doit être sauvegardé avant d'uploader le logo.");
              return;
         }
 
         try {
             const response = await axios.post(`${apiUrl}/forms/${form._id}/logo`, 
-                { logoData: logoFile }, // Envoi du Base64 directement
+                { logoData: logoFile }, 
                 {
                     headers: { 
-                        'Content-Type': 'application/json', // Type JSON pour le Base64
+                        'Content-Type': 'application/json', 
                         'Authorization': `Bearer ${token}`
                     }
                 }
@@ -226,7 +228,7 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, isNewForm, token, ap
                         <Button 
                             variant="primary" 
                             onClick={handleLogoUpload} 
-                            disabled={!logoFile || !form._id} // Désactive si pas de fichier ou pas d'ID de formulaire
+                            disabled={!logoFile || !form._id} 
                         >
                             Uploader le Logo
                         </Button>
@@ -249,7 +251,8 @@ const Dashboard = ({ user, token, apiUrl }) => {
     const [forms, setForms] = useState([]);
     const [currentView, setCurrentView] = useState('list'); 
     const [selectedForm, setSelectedForm] = useState(null);
-    const [currentFormDetails, setCurrentFormDetails] = useState({ title: '', fields: [], logoPath: '' });
+    // 🎯 CORRECTION: Ajout de publicUrl dans l'état pour stocker le lien de production
+    const [currentFormDetails, setCurrentFormDetails] = useState({ title: '', fields: [], logoPath: '', publicUrl: '' });
     const [stats, setStats] = useState(null);
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
@@ -275,7 +278,7 @@ const Dashboard = ({ user, token, apiUrl }) => {
     const handleNewForm = () => {
         setIsNewForm(true);
         setSelectedForm(null);
-        setCurrentFormDetails({ title: '', fields: [], logoPath: '' });
+        setCurrentFormDetails({ title: '', fields: [], logoPath: '', publicUrl: '' }); // Réinitialisation de publicUrl
         setQrCodeDataURL('');
         setCurrentView('builder');
     };
@@ -283,7 +286,8 @@ const Dashboard = ({ user, token, apiUrl }) => {
     const handleEditForm = (form) => {
         setIsNewForm(false);
         setSelectedForm(form);
-        setCurrentFormDetails({ ...form }); 
+        // Le publicUrl sera récupéré du backend après la sauvegarde
+        setCurrentFormDetails({ ...form, publicUrl: '' }); 
         setQrCodeDataURL('');
         setCurrentView('builder');
     };
@@ -295,7 +299,6 @@ const Dashboard = ({ user, token, apiUrl }) => {
             const dataToSave = { 
                 title: currentFormDetails.title, 
                 fields: currentFormDetails.fields,
-                // Utiliser _id de l'état actuel pour la mise à jour si elle existe
                 ...(currentFormDetails._id && { _id: currentFormDetails._id }) 
             };
             
@@ -310,11 +313,12 @@ const Dashboard = ({ user, token, apiUrl }) => {
             setQrCodeDataURL(response.data.qrCodeDataURL);
             setSuccessMessage('Formulaire sauvegardé et lien public généré !');
             
-            // CORRECTION CRITIQUE: Mettre à jour currentFormDetails avec l'ID et le token après sauvegarde
+            // 🎯 CORRECTION: Mettre à jour currentFormDetails avec l'URL complète renvoyée par le backend
             setCurrentFormDetails(prevDetails => ({
                 ...prevDetails,
                 _id: savedForm._id, 
                 urlToken: savedForm.urlToken,
+                publicUrl: response.data.publicUrl, // 👈 UTILISE LE LIEN DE PRODUCTION (https://startup-form.onrender.com/...)
             }));
 
 
@@ -344,19 +348,20 @@ const Dashboard = ({ user, token, apiUrl }) => {
         }
         
         if (currentView === 'builder') {
-            const publicUrl = currentFormDetails.urlToken ? `https://form-backend-pl5d.onrender.com/form/${currentFormDetails.urlToken}` : '';
+            // 🎯 CORRECTION: Utiliser le lien complet stocké dans l'état (publicUrl)
+            const publicUrl = currentFormDetails.publicUrl || '';
             
             return (
                 <>
                     {successMessage && <Alert variant="success">{successMessage}</Alert>}
-                    {qrCodeDataURL && currentFormDetails.urlToken && (
+                    {qrCodeDataURL && publicUrl && ( 
                         <Card className="mb-4 p-3 text-center bg-light">
                             <h5>QR Code et Lien Public</h5>
                             <QRCodeSVG value={publicUrl} size={128} level="H" includeMargin={true} />
                             
                             <p className="mt-2">
                                 Lien: <a href={publicUrl} target="_blank" rel="noopener noreferrer">
-                                    {publicUrl}
+                                    {publicUrl} 
                                 </a>
                             </p>
                             <Button 
@@ -479,6 +484,7 @@ const PublicFormPage = ({ match, apiUrl }) => {
     useEffect(() => {
         const fetchForm = async () => {
             try {
+                // Le frontend appelle l'API du backend hébergé
                 const response = await axios.get(`${apiUrl}/public/form/${urlToken}`);
                 setFormDetails(response.data);
                 
@@ -661,7 +667,7 @@ const App = () => {
     const renderRoute = () => {
         // Logique pour la page publique du formulaire (URL: /form/:token)
         if (path.startsWith('/form/')) {
-            const tokenMatch = path.match(/\/form\/([a-fA-F0-9]{24})$/); // Simple match de l'ObjectId de 24 caractères
+            const tokenMatch = path.match(/\/form\/([a-fA-F0-9]{24})$/); 
             if (tokenMatch) {
                 return <PublicFormPage match={{ params: { token: tokenMatch[1] }} } apiUrl={API_URL} />;
             }
