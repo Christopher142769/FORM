@@ -142,12 +142,12 @@ app.post('/api/forms', protect, async (req, res) => {
             );
             if (!form) return res.status(404).json({ message: 'Formulaire non trouvé ou non autorisé.' });
             
-            publicUrl = `https://startup-form.onrender.com/form/${form.urlToken}`;
+            publicUrl = `https://form-backend-pl5d.onrender.com/form/${form.urlToken}`;
             
         } else {
             const urlToken = new mongoose.Types.ObjectId().toString();
             form = await Form.create({ title, fields, userId: req.user, urlToken });
-            publicUrl = `https://startup-form.onrender.com/form/${form.urlToken}`; 
+            publicUrl = `https://form-backend-pl5d.onrender.com/form/${form.urlToken}`; 
         }
 
         const qrCodeDataURL = await QRCode.toDataURL(publicUrl);
