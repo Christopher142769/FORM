@@ -1,0 +1,453 @@
+/* ========================================
+   ALL MANAGE - DESIGN SYSTEM 3.0 (CLAIRE & COURBÉE)
+   (AJOUT DES THÈMES & LIGHT/DARK)
+   ======================================== */
+
+/* Définition du thème par défaut (Clair/Bleu - Thème 'blue') */
+:root {
+  /* --- Couleurs de Thème par Défaut (Blue) --- */
+  --theme-color: #007bff; /* Bleu Institutionnel */
+  --theme-color-dark: #0056b3;
+  --theme-gradient: linear-gradient(135deg, #007bff, #4a90e2);
+  --theme-success: #28a745; 
+  --theme-danger: #dc3545;
+  --theme-info: #17a2b8;
+  --theme-warning: #ffc107;
+
+  /* --- Couleurs de Base & Fond (Light Mode) --- */
+  --bg-main: #f5f7fa; /* Fond Principal: Gris clair (Body/Main Content) */
+  --bg-card: #ffffff; /* Fond des Cartes: Blanc pur */
+  --text-main: #343a40; /* Texte Principal: Gris foncé */
+  --text-secondary: #6c757d; /* Texte Secondaire: Gris moyen */
+  --border-light: #e9ecef; /* Bordure/Séparateur léger */
+  --shadow-color: rgba(0, 0, 0, 0.12); /* Couleur de l'ombre de base */
+  
+  /* Anciennes variables mappées aux nouvelles pour la compatibilité */
+  --light: var(--bg-card); 
+  --dark: var(--text-main); 
+  --gray: var(--text-secondary);
+  --gray-light: #e9ecef; /* Background léger pour les tables/inputs */
+  --bg-primary-light: var(--bg-main); /* Fond du body */
+
+
+  /* --- Gradients pour les Cartes Stats --- */
+  --gradient-primary: var(--theme-gradient);
+  --gradient-secondary: linear-gradient(135deg, #28a745, #4cd137); /* Vert */
+  --gradient-info: linear-gradient(135deg, #17a2b8, #5bc0de); /* Cyan */
+  --gradient-danger: linear-gradient(135deg, #dc3545, #e74c3c); /* Rouge */
+
+  /* --- Design System --- */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 6px 16px var(--shadow-color);
+  --shadow-lg: 0 12px 30px var(--shadow-color);
+  --shadow-hover: 0 8px 20px rgba(0, 123, 255, 0.3); 
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px; 
+  --radius-xl: 30px; 
+  --radius-xxl: 50px; 
+
+  --transition: 0.35s cubic-bezier(0.25, 0.8, 0.25, 1); 
+  --font-primary: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Fira Code', Consolas, monospace;
+}
+
+/* -------------------------------------
+   THÈMES DYNAMIQUES (Modifie les variables ROOT)
+   ------------------------------------- */
+
+/* Thème 'blue' (Défaut) */
+:root.theme-blue {
+    --theme-color: #007bff;
+    --theme-color-dark: #0056b3;
+    --theme-gradient: linear-gradient(135deg, #007bff, #4a90e2);
+    --shadow-hover: 0 8px 20px rgba(0, 123, 255, 0.3);
+}
+/* Thème 'green' */
+:root.theme-green {
+    --theme-color: #1abc9c; /* Turquoise */
+    --theme-color-dark: #16a085;
+    --theme-gradient: linear-gradient(135deg, #1abc9c, #48c9b0);
+    --shadow-hover: 0 8px 20px rgba(26, 188, 156, 0.3);
+}
+/* Thème 'purple' */
+:root.theme-purple {
+    --theme-color: #9b59b6; /* Améthyste */
+    --theme-color-dark: #8e44ad;
+    --theme-gradient: linear-gradient(135deg, #9b59b6, #b88ce8);
+    --shadow-hover: 0 8px 20px rgba(155, 89, 182, 0.3);
+}
+/* Thème 'red' */
+:root.theme-red {
+    --theme-color: #e74c3c; /* Peter River */
+    --theme-color-dark: #c0392b;
+    --theme-gradient: linear-gradient(135deg, #e74c3c, #f1948a);
+    --shadow-hover: 0 8px 20px rgba(231, 76, 60, 0.3);
+}
+
+/* -------------------------------------
+   DARK MODE (Modifie les variables ROOT)
+   ------------------------------------- */
+:root.dark-mode {
+    --bg-main: #121212; /* Fond Principal: Noir */
+    --bg-card: #1e1e1e; /* Fond des Cartes: Gris foncé */
+    --text-main: #e0e0e0; /* Texte Principal: Blanc clair */
+    --text-secondary: #aaaaaa; /* Texte Secondaire: Gris clair */
+    --border-light: #303030; /* Bordure/Séparateur sombre */
+    --shadow-color: rgba(255, 255, 255, 0.08); /* Ombre légère pour le dark mode */
+
+    /* Compatibilité et Composants */
+    --light: var(--bg-card); 
+    --dark: var(--text-main); 
+    --gray-light: #303030; /* Remplace le gris clair des tables/inputs */
+    --bg-primary-light: var(--bg-main); 
+}
+
+
+/* -------------------------------------
+   STYLES GÉNÉRAUX & STRUCTURE
+   ------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-primary);
+  /* Utilisation des nouvelles variables dynamiques */
+  background: var(--bg-main); 
+  color: var(--text-main);
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+  font-size: 14px;
+  transition: background var(--transition), color var(--transition); /* Transition pour le mode sombre */
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 700;
+}
+
+/* --- ANIMATIONS & UTILITIES --- */
+@keyframes pulse-border {
+  /* Utilise la couleur du thème pour le pulse */
+  0% { box-shadow: 0 0 0 0 var(--theme-success), 0.5; }
+  70% { box-shadow: 0 0 0 10px var(--theme-success), 0; }
+  100% { box-shadow: 0 0 0 0 var(--theme-success), 0; }
+}
+
+.card {
+    border: 1px solid var(--border-light); /* Bordure légère dans tous les modes */
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    background-color: var(--bg-card); /* Fond dynamique */
+    transition: box-shadow var(--transition), transform var(--transition), background-color var(--transition);
+}
+
+.card-hover-animation:hover {
+    transform: translateY(-6px);
+    /* Utilisation de la couleur du thème pour le hover (plus stylé) */
+    box-shadow: 0 8px 20px var(--theme-color), 0.3, var(--shadow-lg); 
+}
+/* Style pour la carte de sélection de thème */
+.theme-option-card {
+    cursor: pointer;
+    border: 3px solid transparent;
+    transition: all 0.3s ease;
+    background-color: var(--bg-card); /* Assurer le fond dynamique */
+}
+.theme-option-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+.theme-option-card.active {
+    border-color: var(--theme-color);
+    box-shadow: 0 0 0 4px var(--theme-color), 0.3, var(--shadow-lg);
+}
+
+
+.text-shadow {
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* --- LANDING & AUTH PAGES --- */
+.landing-container {
+    background: var(--bg-main) !important; 
+}
+.landing-card {
+  border-radius: var(--radius-xxl) !important; 
+  border: 1px solid var(--border-light) !important;
+}
+
+.auth-card {
+    border-radius: var(--radius-lg) !important;
+    box-shadow: var(--shadow-lg) !important;
+    background-color: var(--bg-card) !important;
+}
+
+.auth-card .nav-link.active {
+    background-color: var(--theme-color) !important;
+}
+
+/* --- SIDEBAR REVISITÉE --- */
+.sidebar {
+  background: var(--bg-card); /* Fond dynamique */
+  border-right: none;
+  box-shadow: var(--shadow-lg);
+  transition: transform var(--transition), background var(--transition), box-shadow var(--transition);
+  width: 280px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  z-index: 1040;
+  overflow-y: auto;
+  transform: translateX(-280px);
+}
+
+.sidebar.show {
+  transform: translateX(0);
+}
+
+.sidebar-header {
+  padding: 1.5rem 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+/* Style général des liens */
+.sidebar .nav-link {
+  color: var(--text-main) !important; /* Couleur dynamique */
+  font-weight: 500;
+  border-radius: var(--radius-xl) !important; 
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 0; 
+  transition: all var(--transition);
+}
+/* Effet de survol clair */
+.sidebar .nav-link:hover {
+  background: var(--gray-light) !important;
+  color: var(--theme-color-dark) !important; /* Utilise le thème sombre du thème choisi */
+}
+/* État actif: Couleur Primaire */
+.sidebar .nav-link.active {
+  background: var(--theme-gradient) !important; /* Dégradé du thème */
+  color: white !important;
+  font-weight: 600 !important;
+  box-shadow: var(--shadow-sm);
+}
+
+.sidebar .nav-link i {
+  color: var(--theme-color); /* Icônes en couleur du thème */
+  transition: color var(--transition);
+}
+
+.sidebar .nav-link.active i {
+  color: white; /* Icônes en blanc pour l'actif */
+}
+
+.sidebar-footer {
+    padding: 1rem;
+    background: var(--bg-card); /* Fond dynamique */
+    border-top: 1px solid var(--border-light);
+    z-index: 10;
+}
+
+/* --- MAIN CONTENT & HEADER --- */
+.main-content {
+    background: var(--bg-main); /* Fond dynamique */
+    transition: filter 0.3s ease-out, background var(--transition); 
+}
+/* Classe pour le flou sur mobile */
+.main-content.blurred {
+    filter: blur(4px) brightness(0.9);
+    pointer-events: none; 
+    user-select: none;
+}
+
+.top-navbar {
+    background-color: var(--bg-card) !important; /* Fond dynamique */
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-main) !important;
+}
+
+/* --- SUMMARY CARDS (Stat Card) --- */
+/* Le texte blanc sur fond gradient reste blanc/transparent */
+.stat-card-title {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.9rem;
+}
+.stat-card-value {
+    font-size: 2.2rem;
+    font-weight: 800;
+}
+.stat-card-title.text-dark {
+    /* Utilisation de la variable text-main pour les cartes non-gradient */
+    color: var(--text-main) !important; 
+}
+
+
+/* --- FORMS & BUTTONS --- */
+.form-control,
+.form-select {
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-light);
+  padding: 0.8rem 1.2rem;
+  transition: all var(--transition);
+  background-color: var(--bg-card); /* Fond dynamique */
+  color: var(--text-main); /* Texte dynamique */
+}
+
+/* Correction des placeholders en dark mode */
+:root.dark-mode .form-control::placeholder,
+:root.dark-mode .form-select {
+    color: var(--text-secondary);
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--theme-color);
+  box-shadow: 0 0 0 0.3rem var(--theme-color), 0.15;
+}
+
+.btn {
+  border-radius: var(--radius-xl);
+  font-weight: 600;
+  padding: 0.75rem 1.5rem;
+  transition: all var(--transition);
+  border: none;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary {
+    background-color: var(--theme-color);
+    border-color: var(--theme-color);
+    color: white;
+}
+.btn-primary:hover {
+    background-color: var(--theme-color-dark);
+    border-color: var(--theme-color-dark);
+    color: white;
+}
+
+/* Les boutons de couleur statique utilisent les couleurs de thème */
+.btn-success { background-color: var(--theme-success); border-color: var(--theme-success); color: white; }
+.btn-success:hover { background-color: var(--theme-success), 0.8; border-color: var(--theme-success), 0.8; }
+
+.btn-danger { background-color: var(--theme-danger); border-color: var(--theme-danger); color: white; }
+.btn-danger:hover { background-color: var(--theme-danger), 0.8; border-color: var(--theme-danger), 0.8; }
+
+.btn-info { background-color: var(--theme-info); border-color: var(--theme-info); color: white; }
+.btn-info:hover { background-color: var(--theme-info), 0.8; border-color: var(--theme-info), 0.8; }
+
+.btn-warning { background-color: var(--theme-warning); border-color: var(--theme-warning); color: var(--text-main); }
+.btn-warning:hover { background-color: var(--theme-warning), 0.8; border-color: var(--theme-warning), 0.8; }
+
+/* Styles pour les boutons outline */
+.btn-outline-primary { border-color: var(--theme-color); color: var(--theme-color); }
+.btn-outline-primary:hover { background-color: var(--theme-color); color: white; }
+
+.btn-outline-secondary { border-color: var(--text-secondary); color: var(--text-secondary); }
+.btn-outline-secondary:hover { background-color: var(--text-secondary); color: white; }
+
+.btn-outline-success { border-color: var(--theme-success); color: var(--theme-success); }
+.btn-outline-success:hover { background-color: var(--theme-success); color: white; }
+
+.btn-outline-danger { border-color: var(--theme-danger); color: var(--theme-danger); }
+.btn-outline-danger:hover { background-color: var(--theme-danger); color: white; }
+
+
+.btn-success {
+    /* Animation pulse conservée mais avec la nouvelle couleur/opacité */
+    animation: pulse-border 2s infinite; 
+}
+
+
+/* --- TABLES (Lisibilité) --- */
+.table {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  /* Correction pour assurer que le texte est lisible en dark mode */
+  color: var(--text-main); 
+}
+
+.table thead {
+  background-color: var(--gray-light);
+  color: var(--text-main);
+}
+
+.table th {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  border: none;
+}
+
+.table tbody tr:hover {
+  background: var(--theme-color), 0.05; /* Effet hover subtil basé sur le thème */
+}
+
+/* --- RESPONSIVE OPTIMIZATION (Mobile First) --- */
+   
+@media (max-width: 767.98px) {
+  
+  .sidebar.show {
+    box-shadow: 5px 0 15px rgba(0,0,0,0.3);
+  }
+  
+  .stat-card-value {
+    font-size: 1.5rem !important;
+  }
+  
+  .table-responsive-mobile {
+      display: block;
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+  }
+  .table-responsive-mobile > table {
+      min-width: 650px; 
+  }
+}
+
+/* --- PRINT STYLES (Inchangé) --- */
+@media print {
+  body { 
+      background: white !important; 
+      color: black !important; 
+      font-family: 'Consolas', monospace !important; 
+      width: 80mm !important;
+      font-size: 9pt !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      line-height: 1.2 !important;
+      overflow-x: hidden !important;
+  }
+  
+  .sidebar, .navbar, .btn, .card-hover-animation, .form-control, .modal, .top-navbar { 
+      display: none !important; 
+  }
+  
+  .main-content, .container-fluid, .row, .col-12 {
+      width: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+  }
+  
+  .print-invoice-content {
+      display: block !important;
+      width: 100% !important;
+      margin: 0 auto !important;
+      padding: 10px !important;
+      box-shadow: none !important;
+      border: none !important;
+      background: white !important;
+  }
+}
