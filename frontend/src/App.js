@@ -1,4 +1,4 @@
-// client/src/App.js - TOUT LE FRONTEND EN UN SEUL FICHIER (FINAL V5 avec correction du lien public)
+// client/src/App.js - TOUT LE FRONTEND EN UN SEUL FICHIER (FINAL V6 avec token robuste)
 
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
@@ -56,30 +56,30 @@ const Auth = ({ onAuthSuccess, apiUrl }) => {
                     <Form.Label>Email</Form.Label>
                     <Form.Control 
                         type="email" 
-                        value={email} 
-                        onChange={(e) => setEmail(e.target.value)} 
-                        required 
-                    />
-                </Form.Group>
-                <Form.Group className="mb-3">
-                    <Form.Label>Mot de passe</Form.Label>
-                    <Form.Control 
-                        type="password" 
-                        value={password} 
-                        onChange={(e) => setPassword(e.target.value)} 
-                        required 
-                    />
-                </Form.Group>
-                <Button variant="primary" type="submit" className="w-100 mt-2">
-                    {isLogin ? 'Se Connecter' : 'S\'inscrire'}
+                            value={email} 
+                            onChange={(e) => setEmail(e.target.value)} 
+                            required 
+                        />
+                    </Form.Group>
+                    <Form.Group className="mb-3">
+                        <Form.Label>Mot de passe</Form.Label>
+                        <Form.Control 
+                            type="password" 
+                            value={password} 
+                            onChange={(e) => setPassword(e.target.value)} 
+                            required 
+                        />
+                    </Form.Group>
+                    <Button variant="primary" type="submit" className="w-100 mt-2">
+                        {isLogin ? 'Se Connecter' : 'S\'inscrire'}
+                    </Button>
+                </Form>
+                <Button variant="link" onClick={() => setIsLogin(!isLogin)} className="mt-3">
+                    {isLogin ? "Pas de compte ? S'inscrire" : "Déjà un compte ? Se connecter"}
                 </Button>
-            </Form>
-            <Button variant="link" onClick={() => setIsLogin(!isLogin)} className="mt-3">
-                {isLogin ? "Pas de compte ? S'inscrire" : "Déjà un compte ? Se connecter"}
-            </Button>
-        </Card>
-    );
-};
+            </Card>
+        );
+    };
 
 // --- PARTIE 2 : CONSTRUCTEUR DE FORMULAIRE (BUILDER) ---
 const FormBuilder = ({ form, setForm, onSave, onUploadLogo, isNewForm, token, apiUrl }) => {
@@ -671,8 +671,10 @@ const App = () => {
     const renderRoute = () => {
         // Logique pour la page publique du formulaire (URL: /form/:token)
         if (path.startsWith('/form/')) {
-            const tokenMatch = path.match(/\/form\/([a-fA-F0-9]{24})$/); 
-            if (tokenMatch) {
+            // 💡 CORRECTION CRITIQUE: Expression régulière plus tolérante (accepte tout caractère après /form/)
+            const tokenMatch = path.match(/\/form\/(.+)$/); 
+            
+            if (tokenMatch && tokenMatch[1]) {
                 return <PublicFormPage match={{ params: { token: tokenMatch[1] }} } apiUrl={API_URL} />;
             }
         }
