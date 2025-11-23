@@ -1,18 +1,19 @@
-// client/src/App.js - TOUT LE FRONTEND EN UN SEUL FICHIER (FINAL V7 avec API URL fixée et lien public fixé)
+// client/src/App.js - TOUT LE FRONTEND EN UN SEUL FICHIER (FINAL V8 - STABLE)
 
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { 
     Container, Nav, Navbar, Button, Card, Row, Col, 
-    Form, Alert, ListGroup, InputGroup, Modal 
+    Form, Alert, ListGroup, InputGroup, Modal, Badge
 } from 'react-bootstrap';
 import { QRCodeSVG } from 'qrcode.react'; 
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-// 🎯 CORRECTION: L'API_URL doit pointer vers votre backend hébergé.
+
+// 🎯 L'API_URL DOIT pointer vers votre backend hébergé.
 const API_URL = 'https://form-backend-pl5d.onrender.com/api'; 
-// Note: Le lien public du formulaire est généré par le backend et stocké dans l'état,
-// pointant vers l'URL du frontend (https://startup-form.onrender.com/form/...)
+
 
 // --- PARTIE 1 : AUTHENTIFICATION (LOGIN/REGISTER) ---
 const Auth = ({ onAuthSuccess, apiUrl }) => {
@@ -32,25 +33,24 @@ const Auth = ({ onAuthSuccess, apiUrl }) => {
             const response = await axios.post(`${apiUrl}/auth/${endpoint}`, data);
             onAuthSuccess(response.data.token, response.data.user);
         } catch (err) {
-            setError(err.response?.data?.message || 'Une erreur est survenue.');
+            setError(err.response?.data?.message || 'Une erreur est survenue lors de l\'authentification.');
         }
     };
 
     return (
-        <Card className="shadow-lg p-4 mx-auto" style={{ maxWidth: '500px' }}>
-            <Card.Title className="text-center mb-4">
-                {isLogin ? 'Connexion Entreprise' : 'Inscription Entreprise'}
-            </Card.Title>
+        <Card className="shadow-lg p-4 mx-auto mt-5" style={{ maxWidth: '450px' }}>
+            <Card.Title className="text-center mb-4">{isLogin ? 'Connexion' : 'Inscription'}</Card.Title>
             {error && <Alert variant="danger">{error}</Alert>}
             <Form onSubmit={handleSubmit}>
                 {!isLogin && (
                     <Form.Group className="mb-3">
-                        <Form.Label>Nom de l'Entreprise</Form.Label>
+                        <Form.Label>Nom de l'entreprise</Form.Label>
                         <Form.Control 
                             type="text" 
+                            placeholder="Entrez le nom de votre entreprise" 
                             value={companyName} 
                             onChange={(e) => setCompanyName(e.target.value)} 
-                            required={!isLogin} 
+                            required={!isLogin}
                         />
                     </Form.Group>
                 )}
@@ -58,6 +58,7 @@ const Auth = ({ onAuthSuccess, apiUrl }) => {
                     <Form.Label>Email</Form.Label>
                     <Form.Control 
                         type="email" 
+                        placeholder="Entrez votre email" 
                         value={email} 
                         onChange={(e) => setEmail(e.target.value)} 
                         required 
@@ -67,207 +68,255 @@ const Auth = ({ onAuthSuccess, apiUrl }) => {
                     <Form.Label>Mot de passe</Form.Label>
                     <Form.Control 
                         type="password" 
+                        placeholder="Mot de passe" 
                         value={password} 
                         onChange={(e) => setPassword(e.target.value)} 
                         required 
                     />
                 </Form.Group>
-                <Button variant="primary" type="submit" className="w-100 mt-2">
-                    {isLogin ? 'Se Connecter' : 'S\'inscrire'}
+                <Button variant="primary" type="submit" className="w-100 mt-3">
+                    {isLogin ? 'Se connecter' : 'S\'inscrire'}
                 </Button>
             </Form>
-            <Button variant="link" onClick={() => setIsLogin(!isLogin)} className="mt-3">
+            <hr />
+            <Button variant="link" onClick={() => setIsLogin(!isLogin)} className="text-center">
                 {isLogin ? "Pas de compte ? S'inscrire" : "Déjà un compte ? Se connecter"}
             </Button>
         </Card>
     );
 };
 
-// --- PARTIE 2 : CONSTRUCTEUR DE FORMULAIRE (BUILDER) ---
-const FormBuilder = ({ form, setForm, onSave, onUploadLogo, isNewForm, token, apiUrl }) => {
-    const [fieldLabel, setFieldLabel] = useState('');
-    const [fieldType, setFieldType] = useState('text');
-    const [logoFile, setLogoFile] = useState(null); // Contient la Data URL temporaire
-    const [uploadError, setUploadError] = useState('');
 
-    const addField = () => {
-        if (fieldLabel.trim()) {
-            setForm({
-                ...form,
-                fields: [...form.fields, { label: fieldLabel, type: fieldType }]
-            });
-            setFieldLabel('');
-        }
-    };
+// --- PARTIE 2 : ÉDITION ET CRÉATION DE FORMULAIRE ---
+const FormEditor = ({ initialForm, onSaveSuccess, apiUrl, token }) => {
+    const [form, setForm] = useState(initialForm || { title: 'Nouveau Formulaire', fields: [], logoPath: '' });
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState('');
+    const [saveMessage, setSaveMessage] = useState('');
+    const [logoPreview, setLogoPreview] = useState(form.logoPath);
+    
+    // Pour l'aperçu du QR Code
+    const [modalShow, setModalShow] = useState(false);
+    const [publicUrl, setPublicUrl] = useState('');
+    const [qrCodeDataURL, setQrCodeDataURL] = useState('');
 
-    const removeField = (index) => {
-        const newFields = form.fields.filter((_, i) => i !== index);
+    useEffect(() => {
+        setLogoPreview(form.logoPath);
+    }, [form.logoPath]);
+
+    const handleFieldChange = (index, key, value) => {
+        const newFields = form.fields.map((field, i) => (
+            i === index ? { ...field, [key]: value } : field
+        ));
         setForm({ ...form, fields: newFields });
     };
 
-    // LOGIQUE BASE64 : Lire le fichier et le stocker en Data URL
-    const handleLogoChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setLogoFile(reader.result); // Stocke la Data URL Base64
-                setUploadError('');
-            };
-            reader.readAsDataURL(file);
-        }
+    const addField = () => {
+        setForm({ 
+            ...form, 
+            fields: [...form.fields, { label: `Question ${form.fields.length + 1}`, type: 'text' }] 
+        });
     };
 
-    // LOGIQUE BASE64 : Envoyer la Data URL via JSON
-    const handleLogoUpload = async () => {
-        if (!logoFile) { 
-            setUploadError("Veuillez d'abord sélectionner un fichier.");
-            return;
-        }
-        if (!form._id) { 
-             setUploadError("Erreur: Le formulaire doit être sauvegardé avant d'uploader le logo.");
-             return;
-        }
+    const removeField = (index) => {
+        setForm({ ...form, fields: form.fields.filter((_, i) => i !== index) });
+    };
 
+    const handleLogoUpload = async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+            const base64Data = reader.result;
+            setLogoPreview(base64Data);
+            setForm({...form, logoPath: base64Data});
+        };
+        reader.readAsDataURL(file);
+    };
+
+
+    const saveForm = async () => {
+        setIsSaving(true);
+        setSaveError('');
+        setSaveMessage('');
+
+        // 1. Sauvegarde du formulaire (y compris le logo en base64)
         try {
-            const response = await axios.post(`${apiUrl}/forms/${form._id}/logo`, 
-                { logoData: logoFile }, 
-                {
-                    headers: { 
-                        'Content-Type': 'application/json', 
-                        'Authorization': `Bearer ${token}`
-                    }
-                }
-            );
-            setForm({ ...form, logoPath: response.data.logoPath });
-            setLogoFile(null); 
-            setUploadError('');
-            alert("Logo stocké dans MongoDB avec succès !");
-            onUploadLogo();
-        } catch (error) {
-            setUploadError(error.response?.data?.message || "Erreur lors de l'upload.");
+            const config = {
+                headers: { Authorization: `Bearer ${token}` }
+            };
+            const dataToSend = { ...form };
+            
+            const response = await axios.post(`${apiUrl}/forms`, dataToSend, config);
+
+            // 2. Mise à jour de l'état local et affichage du message de succès
+            setForm(response.data.form);
+            setPublicUrl(response.data.publicUrl);
+            setQrCodeDataURL(response.data.qrCodeDataURL);
+            setSaveMessage(form._id ? 'Formulaire mis à jour avec succès !' : 'Formulaire créé avec succès !');
+            
+            // Appeler la fonction de succès du parent pour mettre à jour la liste
+            onSaveSuccess();
+
+        } catch (err) {
+            setSaveError(err.response?.data?.message || 'Erreur lors de la sauvegarde du formulaire.');
+        } finally {
+            setIsSaving(false);
         }
     };
+    
+    // Composant Modal pour le QR Code
+    const QRCodeModal = (props) => (
+        <Modal {...props} size="lg" aria-labelledby="contained-modal-title-vcenter" centered>
+            <Modal.Header closeButton>
+                <Modal.Title id="contained-modal-title-vcenter">
+                    Lien Public et QR Code
+                </Modal.Title>
+            </Modal.Header>
+            <Modal.Body className="text-center">
+                <h5>Lien Public de votre Formulaire :</h5>
+                <InputGroup className="mb-3">
+                    <Form.Control
+                        defaultValue={publicUrl}
+                        readOnly
+                        onClick={(e) => e.target.select()}
+                    />
+                    <Button variant="outline-secondary" onClick={() => navigator.clipboard.writeText(publicUrl)}>
+                        Copier
+                    </Button>
+                </InputGroup>
+                <div className="mt-4">
+                    <QRCodeSVG 
+                        value={publicUrl} 
+                        size={256} 
+                        level={"H"} 
+                        includeMargin={true}
+                    />
+                </div>
+            </Modal.Body>
+            <Modal.Footer>
+                <Button onClick={props.onHide}>Fermer</Button>
+            </Modal.Footer>
+        </Modal>
+    );
 
     return (
-        <Card className="mb-4">
-            <Card.Header className="bg-success text-white">
-                <Row className="align-items-center">
-                    <Col>
-                        <h4 className="mb-0">Constructeur de Formulaire</h4>
-                    </Col>
-                    <Col xs="auto">
-                        <Button variant="light" onClick={onSave} disabled={!form.title.trim()}>
-                            <i className="bi bi-save me-2"></i> Sauvegarder
+        <>
+            <Row className="mb-4">
+                <Col>
+                    <h2 className="mb-0">{form._id ? 'Éditer le Formulaire' : 'Créer un Nouveau Formulaire'}</h2>
+                    {publicUrl && (
+                        <Button variant="info" className="mt-2" onClick={() => setModalShow(true)}>
+                            Voir Lien Public & QR Code
                         </Button>
-                    </Col>
-                </Row>
-            </Card.Header>
-            <Card.Body>
-                <Form.Group className="mb-3">
-                    <Form.Label>Titre du Formulaire</Form.Label>
-                    <Form.Control 
-                        type="text" 
-                        placeholder="Ex: Enquête de Satisfaction" 
-                        value={form.title} 
-                        onChange={(e) => setForm({ ...form, title: e.target.value })} 
-                    />
-                </Form.Group>
-
-                <hr/>
-
-                <Row className="mb-4 align-items-end">
-                    <Col md={5}>
-                        <Form.Group>
-                            <Form.Label>Type de Champ</Form.Label>
-                            <Form.Select value={fieldType} onChange={(e) => setFieldType(e.target.value)}>
-                                <option value="text">Texte Court</option>
-                                <option value="textarea">Paragraphe</option>
-                                <option value="email">Email</option>
-                                <option value="number">Nombre</option>
-                                <option value="checkbox">Case à cocher</option>
-                            </Form.Select>
-                        </Form.Group>
-                    </Col>
-                    <Col md={5}>
-                        <Form.Group>
-                            <Form.Label>Étiquette du Champ</Form.Label> 
-                            <Form.Control 
-                                type="text" 
-                                placeholder="Ex: Votre Nom Complet" 
-                                value={fieldLabel} 
-                                onChange={(e) => setFieldLabel(e.target.value)} 
-                            />
-                        </Form.Group>
-                    </Col>
-                    <Col md={2}>
-                        <Button onClick={addField} variant="info" className="w-100">
-                            + Ajouter
-                        </Button>
-                    </Col>
-                </Row>
-
-                <h5 className="mt-4">Champs Actuels ({form.fields.length})</h5>
-                <ListGroup className="mb-4">
-                    {form.fields.map((field, index) => (
-                        <ListGroup.Item key={index} className="d-flex justify-content-between align-items-center">
-                            <span>**{field.label}** (`{field.type}`)</span>
-                            <Button variant="outline-danger" size="sm" onClick={() => removeField(index)}>
-                                X
-                            </Button>
-                        </ListGroup.Item>
-                    ))}
-                    {form.fields.length === 0 && <ListGroup.Item className="text-center text-muted">Ajouter votre premier champ ci-dessus.</ListGroup.Item>}
-                </ListGroup>
-
-                {/* Upload de Logo */}
-                <Card className="mt-4 p-3 bg-light">
-                    <h6>Logo de l'Entreprise pour le Formulaire</h6>
-                    <InputGroup>
-                        <Form.Control type="file" onChange={handleLogoChange} accept="image/*" />
-                        <Button 
-                            variant="primary" 
-                            onClick={handleLogoUpload} 
-                            disabled={!logoFile || !form._id} 
-                        >
-                            Uploader le Logo
-                        </Button>
-                    </InputGroup>
-                    {uploadError && <Alert variant="warning" className="mt-2">{uploadError}</Alert>}
-                    {/* AFFICHAGE : Utilisation directe de la Data URL Base64 */}
-                    {form.logoPath && (
-                        <p className="mt-2 text-success">
-                            Logo actuel: <img src={form.logoPath} alt="Logo Aperçu" style={{height: '30px', marginLeft: '10px'}}/>
-                        </p>
                     )}
+                </Col>
+            </Row>
+
+            {saveMessage && <Alert variant="success">{saveMessage}</Alert>}
+            {saveError && <Alert variant="danger">{saveError}</Alert>}
+            
+            <Card className="shadow-sm mb-4">
+                <Card.Body>
+                    <Form.Group className="mb-3">
+                        <Form.Label>Titre du Formulaire</Form.Label>
+                        <Form.Control 
+                            type="text" 
+                            value={form.title} 
+                            onChange={(e) => setForm({ ...form, title: e.target.value })} 
+                        />
+                    </Form.Group>
+
+                    {/* Section Logo */}
+                    <div className="mb-3">
+                        <Form.Label>Logo du Formulaire (Optionnel)</Form.Label>
+                        <Form.Control type="file" onChange={handleLogoUpload} accept="image/*" className="mb-2" />
+                        {logoPreview && (
+                            <div className="mt-2 text-center">
+                                <img src={logoPreview} alt="Aperçu du Logo" style={{ maxWidth: '100px', maxHeight: '100px', border: '1px solid #ccc' }} />
+                                {/* 💡 CORRECTION SYNTAXE : Utilisation correcte de la fonction de nettoyage */}
+                                <Button variant="link" size="sm" onClick={() => { setLogoPreview(''); setForm({...form, logoPath: ''}); }}>Retirer</Button>
+                            </div>
+                        )}
+                    </div>
+                </Card.Body>
+            </Card>
+
+            <h4 className="mt-4">Champs du Formulaire</h4>
+            {form.fields.map((field, index) => (
+                <Card key={index} className="mb-3 shadow-sm border-left-primary">
+                    <Card.Body>
+                        <Row className="align-items-center">
+                            <Col xs={1} className="text-center text-muted">{index + 1}.</Col>
+                            <Col md={5}>
+                                <Form.Control
+                                    type="text"
+                                    placeholder="Libellé du champ"
+                                    value={field.label}
+                                    onChange={(e) => handleFieldChange(index, 'label', e.target.value)}
+                                />
+                            </Col>
+                            <Col md={4}>
+                                <Form.Select
+                                    value={field.type}
+                                    onChange={(e) => handleFieldChange(index, 'type', e.target.value)}
+                                >
+                                    <option value="text">Texte Court</option>
+                                    <option value="textarea">Texte Long</option>
+                                    <option value="email">Email</option>
+                                    <option value="number">Nombre</option>
+                                    <option value="checkbox">Case à cocher</option>
+                                </Form.Select>
+                            </Col>
+                            <Col md={2} className="text-end">
+                                <Button variant="danger" size="sm" onClick={() => removeField(index)}>Supprimer</Button>
+                            </Col>
+                        </Row>
+                    </Card.Body>
                 </Card>
-            </Card.Body>
-        </Card>
+            ))}
+
+            <Button variant="outline-primary" onClick={addField} className="mt-3 mb-4">
+                + Ajouter un Champ
+            </Button>
+            
+            <div className="text-center">
+                <Button variant="success" size="lg" onClick={saveForm} disabled={isSaving}>
+                    {isSaving ? 'Sauvegarde en cours...' : 'Sauvegarder le Formulaire'}
+                </Button>
+            </div>
+            
+            {publicUrl && (
+                <QRCodeModal
+                    show={modalShow}
+                    onHide={() => setModalShow(false)}
+                />
+            )}
+        </>
     );
 };
 
-// --- PARTIE 3 : DASHBOARD ET GESTION DES FORMULAIRES ---
-const Dashboard = ({ user, token, apiUrl }) => {
+
+// --- PARTIE 3 : DASHBOARD (LISTE ET NAVIGATION) ---
+const Dashboard = ({ user, apiUrl, token, navigateToEditForm, navigateToStats }) => {
     const [forms, setForms] = useState([]);
-    const [currentView, setCurrentView] = useState('list'); 
-    const [selectedForm, setSelectedForm] = useState(null);
-    // 🎯 CORRECTION: Ajout de publicUrl dans l'état pour stocker le lien de production
-    const [currentFormDetails, setCurrentFormDetails] = useState({ title: '', fields: [], logoPath: '', publicUrl: '' });
-    const [stats, setStats] = useState(null);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [successMessage, setSuccessMessage] = useState('');
-    const [qrCodeDataURL, setQrCodeDataURL] = useState('');
-    const [isNewForm, setIsNewForm] = useState(true);
 
     const fetchForms = useCallback(async () => {
+        setLoading(true);
+        setError('');
         try {
-            const response = await axios.get(`${apiUrl}/forms`, {
+            const config = {
                 headers: { Authorization: `Bearer ${token}` }
-            });
+            };
+            const response = await axios.get(`${apiUrl}/forms`, config);
             setForms(response.data);
-            setError('');
         } catch (err) {
-            setError('Erreur lors de la récupération des formulaires.');
+            setError('Erreur lors du chargement des formulaires.');
+        } finally {
+            setLoading(false);
         }
     }, [apiUrl, token]);
 
@@ -275,428 +324,489 @@ const Dashboard = ({ user, token, apiUrl }) => {
         fetchForms();
     }, [fetchForms]);
 
-    const handleNewForm = () => {
-        setIsNewForm(true);
-        setSelectedForm(null);
-        setCurrentFormDetails({ title: '', fields: [], logoPath: '', publicUrl: '' }); // Réinitialisation de publicUrl
-        setQrCodeDataURL('');
-        setCurrentView('builder');
-    };
-
-    const handleEditForm = (form) => {
-        setIsNewForm(false);
-        setSelectedForm(form);
-        // Le publicUrl sera récupéré du backend après la sauvegarde
-        setCurrentFormDetails({ ...form, publicUrl: '' }); 
-        setQrCodeDataURL('');
-        setCurrentView('builder');
-    };
-
-    const handleSaveForm = async () => {
-        setSuccessMessage('');
-        setError('');
-        try {
-            const dataToSave = { 
-                title: currentFormDetails.title, 
-                fields: currentFormDetails.fields,
-                ...(currentFormDetails._id && { _id: currentFormDetails._id }) 
-            };
-            
-            const response = await axios.post(`${apiUrl}/forms`, dataToSave, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-
-            const savedForm = response.data.form;
-            
-            setSelectedForm(savedForm);
-            setIsNewForm(false);
-            setQrCodeDataURL(response.data.qrCodeDataURL);
-            setSuccessMessage('Formulaire sauvegardé et lien public généré !');
-            
-            // 🎯 CORRECTION: Mettre à jour currentFormDetails avec l'URL complète renvoyée par le backend
-            setCurrentFormDetails(prevDetails => ({
-                ...prevDetails,
-                _id: savedForm._id, 
-                urlToken: savedForm.urlToken,
-                publicUrl: response.data.publicUrl, // 👈 UTILISE LE LIEN DE PRODUCTION (https://startup-form.onrender.com/...)
-            }));
-
-
-            fetchForms();
-
-        } catch (err) {
-            setError(err.response?.data?.message || 'Erreur lors de la sauvegarde du formulaire.');
-        }
-    };
-
-    const handleViewStats = async (formId) => {
-        setError('');
-        try {
-            const response = await axios.get(`${apiUrl}/forms/${formId}/stats`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setStats(response.data);
-            setCurrentView('stats');
-        } catch (err) {
-            setError('Erreur lors de la récupération des statistiques.');
-        }
-    };
-
-    const renderContent = () => {
-        if (successMessage) {
-            setTimeout(() => setSuccessMessage(''), 5000);
-        }
-        
-        if (currentView === 'builder') {
-            // 🎯 CORRECTION: Utiliser le lien complet stocké dans l'état (publicUrl)
-            const publicUrl = currentFormDetails.publicUrl || '';
-            
-            return (
-                <>
-                    {successMessage && <Alert variant="success">{successMessage}</Alert>}
-                    {qrCodeDataURL && publicUrl && ( 
-                        <Card className="mb-4 p-3 text-center bg-light">
-                            <h5>QR Code et Lien Public</h5>
-                            <QRCodeSVG value={publicUrl} size={128} level="H" includeMargin={true} />
-                            
-                            <p className="mt-2">
-                                Lien: <a href={publicUrl} target="_blank" rel="noopener noreferrer">
-                                    {publicUrl} 
-                                </a>
-                            </p>
-                            <Button 
-                                variant="outline-primary" 
-                                className="mt-2" 
-                                onClick={() => {
-                                    const link = document.createElement('a');
-                                    link.href = qrCodeDataURL;
-                                    link.download = `formulaire_${currentFormDetails.urlToken}_qr.png`;
-                                    link.click();
-                                }}
-                            >
-                                Télécharger le QR Code
-                            </Button>
-                        </Card>
-                    )}
-                    <FormBuilder 
-                        form={currentFormDetails} 
-                        setForm={setCurrentFormDetails} 
-                        onSave={handleSaveForm}
-                        onUploadLogo={fetchForms}
-                        isNewForm={isNewForm}
-                        token={token}
-                        apiUrl={apiUrl}
-                    />
-                </>
-            );
-        }
-
-        if (currentView === 'stats' && stats) {
-            return (
-                <Card className="mb-4">
-                    <Card.Header className="bg-dark text-white d-flex justify-content-between align-items-center">
-                        <h5>Statistiques pour "{stats.title}"</h5>
-                        <Button variant="light" onClick={() => setCurrentView('list')}>Retour à la liste</Button>
-                    </Card.Header>
-                    <Card.Body>
-                        <Row className="text-center mb-4">
-                            <Col>
-                                <h4>{stats.views}</h4>
-                                <p>Vues Totales</p>
-                            </Col>
-                            <Col>
-                                <h4>{stats.submissionCount}</h4>
-                                <p>Soumissions Totales</p>
-                            </Col>
-                            <Col>
-                                <h4>{stats.conversionRate}%</h4>
-                                <p>Taux de Conversion</p>
-                            </Col>
-                        </Row>
-                        
-                        <h5 className="mt-4">Détails des Soumissions ({stats.submissionCount})</h5>
-                        <ListGroup>
-                            {stats.submissions.map((sub, index) => (
-                                <ListGroup.Item key={index}>
-                                    <h6>Soumission #{index + 1} - {new Date(sub.submittedAt).toLocaleString()}</h6>
-                                    <pre style={{ whiteSpace: 'pre-wrap', backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '5px' }}>
-                                        {JSON.stringify(sub.data, null, 2)}
-                                    </pre>
-                                </ListGroup.Item>
-                            ))}
-                            {stats.submissions.length === 0 && <Alert variant="info" className="mt-3">Aucune soumission pour ce formulaire.</Alert>}
-                        </ListGroup>
-                    </Card.Body>
-                </Card>
-            );
-        }
-
-        // Vue par défaut : Liste des formulaires
-        return (
-            <Card>
-                <Card.Header className="d-flex justify-content-between align-items-center">
-                    <h5>Vos Formulaires</h5>
-                    <Button variant="primary" onClick={handleNewForm}>
-                        + Créer un Nouveau Formulaire
-                    </Button>
-                </Card.Header>
-                <Card.Body>
-                    <ListGroup>
-                        {forms.map((form) => (
-                            <ListGroup.Item key={form._id} className="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <h6 className="mb-1">{form.title}</h6>
-                                    <small className="text-muted">Créé le: {new Date(form.createdAt).toLocaleDateString()}</small>
-                                </div>
-                                <div>
-                                    <Button variant="outline-info" size="sm" className="me-2" onClick={() => handleEditForm(form)}>
-                                        Éditer
-                                    </Button>
-                                    <Button variant="outline-success" size="sm" onClick={() => handleViewStats(form._id)}>
-                                        Stats ({form.submissions})
-                                    </Button>
-                                </div>
-                            </ListGroup.Item>
-                        ))}
-                        {forms.length === 0 && <Alert variant="info" className="text-center mt-3">Vous n'avez pas encore créé de formulaires.</Alert>}
-                    </ListGroup>
-                </Card.Body>
-            </Card>
-        );
-    };
-
     return (
-        <div className="dashboard">
+        <>
+            <Row className="mb-4 align-items-center">
+                <Col>
+                    <h1>Dashboard</h1>
+                    <p className="lead">Gérez vos formulaires et consultez les statistiques.</p>
+                </Col>
+                <Col className="text-end">
+                    <Button variant="primary" onClick={() => navigateToEditForm(null)}>
+                        + Créer Nouveau Formulaire
+                    </Button>
+                </Col>
+            </Row>
+
+            {loading && <p>Chargement des formulaires...</p>}
             {error && <Alert variant="danger">{error}</Alert>}
-            {renderContent()}
-        </div>
+
+            {!loading && forms.length === 0 && (
+                <Alert variant="info">Vous n'avez pas encore créé de formulaires. Créez-en un pour commencer !</Alert>
+            )}
+
+            <ListGroup>
+                {forms.map(form => (
+                    <ListGroup.Item key={form._id} className="d-flex justify-content-between align-items-center shadow-sm mb-2">
+                        <div className="me-auto">
+                            <h5>{form.title}</h5>
+                            <small className="text-muted">Créé le : {new Date(form.createdAt).toLocaleDateString()}</small>
+                        </div>
+                        <Badge bg="success" className="me-3">
+                            Soumissions: {form.submissions}
+                        </Badge>
+                        <Button 
+                            variant="outline-secondary" 
+                            size="sm" 
+                            className="me-2" 
+                            onClick={() => navigateToEditForm(form._id)}
+                        >
+                            Éditer
+                        </Button>
+                        <Button 
+                            variant="primary" 
+                            size="sm"
+                            onClick={() => navigateToStats(form._id)}
+                        >
+                            Statistiques
+                        </Button>
+                    </ListGroup.Item>
+                ))}
+            </ListGroup>
+        </>
     );
 };
 
-// --- PARTIE 4 : PAGE PUBLIQUE DE SOUMISSION DU FORMULAIRE ---
-const PublicFormPage = ({ match, apiUrl }) => {
-    const [formDetails, setFormDetails] = useState(null);
-    const [formData, setFormData] = useState({});
+
+// --- PARTIE 4 : STATISTIQUES ET RÉSULTATS ---
+const FormStats = ({ formId, apiUrl, token, navigate }) => {
+    const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [submitStatus, setSubmitStatus] = useState({ message: '', variant: '' });
-    const urlToken = match.params.token;
+    const [error, setError] = useState('');
+    
+    // Pour l'affichage du QR Code
+    const [modalShow, setModalShow] = useState(false);
+    const [publicUrl, setPublicUrl] = useState('');
+    const [qrCodeDataURL, setQrCodeDataURL] = useState('');
+
+    const fetchStats = useCallback(async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const config = {
+                headers: { Authorization: `Bearer ${token}` }
+            };
+            // Récupère les stats ET les détails du formulaire (pour le lien public)
+            const statsResponse = await axios.get(`${apiUrl}/forms/${formId}/stats`, config);
+            setStats(statsResponse.data);
+            
+            // Re-fetch des détails complets pour générer le lien et QR Code (si nécessaire)
+            const formResponse = await axios.post(`${apiUrl}/forms`, { _id: formId, title: statsResponse.data.title, fields: [] }, config);
+            setPublicUrl(formResponse.data.publicUrl);
+            setQrCodeDataURL(formResponse.data.qrCodeDataURL);
+            
+        } catch (err) {
+            setError(err.response?.data?.message || 'Erreur lors du chargement des statistiques.');
+        } finally {
+            setLoading(false);
+        }
+    }, [apiUrl, token, formId]);
 
     useEffect(() => {
+        fetchStats();
+    }, [fetchStats]);
+
+    if (loading) return <div className="text-center mt-5">Chargement des statistiques...</div>;
+    if (error) return <Alert variant="danger" className="mt-5">{error}</Alert>;
+    if (!stats) return <div className="text-center mt-5">Aucune donnée disponible.</div>;
+    
+    // Préparation des données pour le graphique de soumissions
+    const submissionData = stats.submissions.map(sub => ({
+        name: new Date(sub.submittedAt).toLocaleTimeString(), // Utilise l'heure de soumission
+        Soumissions: 1,
+    }));
+
+
+    const QRCodeModal = (props) => (
+        <Modal {...props} size="lg" aria-labelledby="contained-modal-title-vcenter" centered>
+            <Modal.Header closeButton>
+                <Modal.Title id="contained-modal-title-vcenter">Lien Public & QR Code</Modal.Title>
+            </Modal.Header>
+            <Modal.Body className="text-center">
+                <h5>Lien Public de votre Formulaire :</h5>
+                <InputGroup className="mb-3">
+                    <Form.Control defaultValue={publicUrl} readOnly onClick={(e) => e.target.select()}/>
+                    <Button variant="outline-secondary" onClick={() => navigator.clipboard.writeText(publicUrl)}>Copier</Button>
+                </InputGroup>
+                <div className="mt-4">
+                    <QRCodeSVG value={publicUrl} size={256} level={"H"} includeMargin={true}/>
+                </div>
+            </Modal.Body>
+            <Modal.Footer>
+                <Button onClick={props.onHide}>Fermer</Button>
+            </Modal.Footer>
+        </Modal>
+    );
+
+    return (
+        <>
+            <Button variant="secondary" className="mb-4" onClick={() => navigate('/dashboard')}>
+                &larr; Retour au Dashboard
+            </Button>
+            <Row className="mb-4 align-items-center">
+                <Col>
+                    <h1>Statistiques : {stats.title}</h1>
+                </Col>
+                <Col className="text-end">
+                    <Button variant="info" onClick={() => setModalShow(true)}>
+                        Afficher Lien & QR Code
+                    </Button>
+                </Col>
+            </Row>
+
+            <Row className="mb-4 text-center">
+                <Col md={4}>
+                    <Card className="shadow-sm">
+                        <Card.Body>
+                            <Card.Title>Vues</Card.Title>
+                            <Card.Text className="h3 text-primary">{stats.views}</Card.Text>
+                        </Card.Body>
+                    </Card>
+                </Col>
+                <Col md={4}>
+                    <Card className="shadow-sm">
+                        <Card.Body>
+                            <Card.Title>Soumissions</Card.Title>
+                            <Card.Text className="h3 text-success">{stats.submissionCount}</Card.Text>
+                        </Card.Body>
+                    </Card>
+                </Col>
+                <Col md={4}>
+                    <Card className="shadow-sm">
+                        <Card.Body>
+                            <Card.Title>Taux de Conversion</Card.Title>
+                            <Card.Text className="h3 text-warning">{stats.conversionRate}%</Card.Text>
+                        </Card.Body>
+                    </Card>
+                </Col>
+            </Row>
+            
+            <h3 className="mt-5 mb-3">Soumissions récentes (Aperçu)</h3>
+            <Card className="shadow-sm mb-4 p-3">
+                <ResponsiveContainer width="100%" height={300}>
+                    <BarChart
+                        data={submissionData}
+                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                    >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="Soumissions" fill="#8884d8" />
+                    </BarChart>
+                </ResponsiveContainer>
+            </Card>
+
+            <h3 className="mt-5 mb-3">Données Détaillées des Soumissions ({stats.submissions.length})</h3>
+            
+            <ListGroup>
+                {stats.submissions.map((submission, index) => (
+                    <ListGroup.Item key={index} className="shadow-sm mb-2">
+                        <p className="fw-bold text-muted">Soumis le : {new Date(submission.submittedAt).toLocaleString()}</p>
+                        <ListGroup variant="flush">
+                            {Object.entries(submission.data).map(([key, value], idx) => (
+                                <ListGroup.Item key={idx}>
+                                    <span className="fw-bold">{key} :</span> {typeof value === 'boolean' ? (value ? 'Oui' : 'Non') : value}
+                                </ListGroup.Item>
+                            ))}
+                        </ListGroup>
+                    </ListGroup.Item>
+                ))}
+            </ListGroup>
+            
+            {publicUrl && (
+                <QRCodeModal
+                    show={modalShow}
+                    onHide={() => setModalShow(false)}
+                />
+            )}
+        </>
+    );
+};
+
+
+// --- PARTIE 5 : FORMULAIRE PUBLIC (Soumission par l'utilisateur) ---
+const PublicFormPage = ({ match, apiUrl }) => {
+    const token = match.params.token;
+    const [form, setForm] = useState(null);
+    const [formData, setFormData] = useState({});
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+
+    // Récupération du formulaire public
+    useEffect(() => {
         const fetchForm = async () => {
+            setLoading(true);
+            setError('');
+            setSuccess('');
             try {
-                // Le frontend appelle l'API du backend hébergé
-                const response = await axios.get(`${apiUrl}/public/form/${urlToken}`);
-                setFormDetails(response.data);
+                const response = await axios.get(`${apiUrl}/public/form/${token}`);
+                setForm(response.data);
                 
-                const initialData = response.data.fields.reduce((acc, field) => {
-                    const key = field.label.toLowerCase().replace(/\s/g, '_'); 
-                    acc[key] = field.type === 'checkbox' ? false : '';
-                    return acc;
-                }, {});
+                // Initialise les données du formulaire
+                const initialData = {};
+                response.data.fields.forEach(field => {
+                    initialData[field.label] = field.type === 'checkbox' ? false : '';
+                });
                 setFormData(initialData);
-            } catch (error) {
-                setSubmitStatus({ message: 'Formulaire non trouvé ou lien invalide.', variant: 'danger' });
+
+            } catch (err) {
+                setForm(null);
+                setError(err.response?.data?.message || 'Erreur lors du chargement du formulaire.');
             } finally {
                 setLoading(false);
             }
         };
         fetchForm();
-    }, [urlToken, apiUrl]);
+    }, [apiUrl, token]);
 
-    const handleChange = (key, value) => {
-        setFormData({ ...formData, [key]: value });
+    const handleChange = (label, value) => {
+        setFormData({ ...formData, [label]: value });
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setSubmitStatus({ message: 'Envoi en cours...', variant: 'info' });
+        setError('');
+        setSuccess('');
+
         try {
-            await axios.post(`${apiUrl}/public/form/${urlToken}/submit`, formData);
-            setSubmitStatus({ message: 'Merci ! Votre soumission a été enregistrée avec succès.', variant: 'success' });
-            setFormData({}); 
-        } catch (error) {
-            setSubmitStatus({ message: 'Erreur lors de la soumission. Veuillez réessayer.', variant: 'danger' });
+            await axios.post(`${apiUrl}/public/form/${token}/submit`, formData);
+            setSuccess('Votre soumission a été enregistrée avec succès !');
+            // Réinitialise le formulaire après succès
+            const initialData = {};
+            form.fields.forEach(field => {
+                initialData[field.label] = field.type === 'checkbox' ? false : '';
+            });
+            setFormData(initialData);
+
+        } catch (err) {
+            setError(err.response?.data?.message || 'Erreur lors de la soumission. Veuillez réessayer.');
         }
     };
 
-    if (loading) return <Container className="text-center mt-5">Chargement du formulaire...</Container>;
-
-    if (submitStatus.variant === 'danger' && !formDetails) {
-        return <Container className="mt-5"><Alert variant="danger">{submitStatus.message}</Alert></Container>;
-    }
+    if (loading) return <div className="text-center mt-5">Chargement du formulaire...</div>;
+    if (error) return <Alert variant="danger" className="mt-5">{error}</Alert>;
+    if (!form) return <div className="text-center mt-5">Formulaire introuvable.</div>;
 
     return (
-        <Container className="my-5" style={{ maxWidth: '800px' }}>
-            <Card className="shadow-lg">
-                <Card.Header className="text-center bg-primary text-white">
-                    {formDetails.logoPath && (
-                        <img 
-                            src={formDetails.logoPath} 
-                            alt="Logo Entreprise" 
-                            style={{ maxHeight: '60px', marginBottom: '10px' }}
-                            className="img-fluid"
-                        />
-                    )}
-                    <h2 className="mb-0">{formDetails.title}</h2>
-                </Card.Header>
-                <Card.Body>
-                    {submitStatus.message && (
-                        <Alert variant={submitStatus.variant} className="mb-4">
-                            {submitStatus.message}
-                        </Alert>
-                    )}
-                    <Form onSubmit={handleSubmit}>
-                        {formDetails.fields.map((field, index) => {
-                            const key = field.label.toLowerCase().replace(/\s/g, '_');
-                            return (
-                                <Form.Group className="mb-3" key={index}>
-                                    <Form.Label>{field.label}{field.type !== 'checkbox' && '*'}</Form.Label>
-                                    {field.type === 'text' && (
-                                        <Form.Control 
-                                            type="text" 
-                                            onChange={(e) => handleChange(key, e.target.value)} 
-                                            value={formData[key] || ''} 
-                                            required 
-                                        />
-                                    )}
-                                    {field.type === 'textarea' && (
-                                        <Form.Control 
-                                            as="textarea" 
-                                            rows={3} 
-                                            onChange={(e) => handleChange(key, e.target.value)} 
-                                            value={formData[key] || ''} 
-                                            required 
-                                        />
-                                    )}
-                                    {field.type === 'email' && (
-                                        <Form.Control 
-                                            type="email" 
-                                            onChange={(e) => handleChange(key, e.target.value)} 
-                                            value={formData[key] || ''} 
-                                            required 
-                                        />
-                                    )}
-                                    {field.type === 'number' && (
-                                        <Form.Control 
-                                            type="number" 
-                                            onChange={(e) => handleChange(key, e.target.value)} 
-                                            value={formData[key] || ''} 
-                                            required 
-                                        />
-                                    )}
-                                    {field.type === 'checkbox' && (
-                                        <Form.Check
-                                            type="checkbox"
-                                            label={field.label}
-                                            onChange={(e) => handleChange(key, e.target.checked)}
-                                            checked={formData[key] || false}
-                                        />
-                                    )}
-                                </Form.Group>
-                            );
-                        })}
-                        <Button variant="success" type="submit" className="w-100 mt-4">
-                            Soumettre le Formulaire
-                        </Button>
-                    </Form>
-                </Card.Body>
-                <Card.Footer className="text-center text-muted">Propulsé par FormGen Pro</Card.Footer>
-            </Card>
-        </Container>
+        <Card className="shadow-lg p-4 mx-auto my-5" style={{ maxWidth: '800px' }}>
+            <div className="text-center mb-4">
+                {form.logoPath && (
+                    <img src={form.logoPath} alt="Logo de l'entreprise" style={{ maxWidth: '100px', maxHeight: '100px', marginBottom: '15px' }} />
+                )}
+                <Card.Title as="h2">{form.title}</Card.Title>
+            </div>
+            
+            {success && <Alert variant="success">{success}</Alert>}
+            {error && <Alert variant="danger">{error}</Alert>}
+
+            <Form onSubmit={handleSubmit}>
+                {form.fields.map((field, index) => (
+                    <Form.Group className="mb-3" key={index}>
+                        <Form.Label>{field.label}</Form.Label>
+                        {field.type === 'textarea' ? (
+                            <Form.Control
+                                as="textarea"
+                                rows={3}
+                                value={formData[field.label] || ''}
+                                onChange={(e) => handleChange(field.label, e.target.value)}
+                                required
+                            />
+                        ) : field.type === 'checkbox' ? (
+                            <Form.Check
+                                type="checkbox"
+                                checked={formData[field.label] || false}
+                                onChange={(e) => handleChange(field.label, e.target.checked)}
+                                label={field.label}
+                            />
+                        ) : (
+                            <Form.Control
+                                type={field.type}
+                                value={formData[field.label] || ''}
+                                onChange={(e) => handleChange(field.label, e.target.value)}
+                                required
+                            />
+                        )}
+                    </Form.Group>
+                ))}
+                <div className="text-center mt-4">
+                    <Button variant="primary" type="submit" size="lg">
+                        Soumettre
+                    </Button>
+                </div>
+            </Form>
+        </Card>
     );
 };
 
-// --- PARTIE 5 : COMPOSANT PRINCIPAL (ROUTAGE SIMPLE) ---
+
+// --- PARTIE 6 : COMPOSANT PRINCIPAL (ROUTAGE SIMPLE) ---
 const App = () => {
-    const [user, setUser] = useState(null);
-    const [token, setToken] = useState(localStorage.getItem('token') || null);
-    const [loading, setLoading] = useState(true);
     const [path, setPath] = useState(window.location.pathname);
-    
-    // Simuler un routage simple pour React, sans react-router-dom
+    const [user, setUser] = useState(null);
+    const [loadingAuth, setLoadingAuth] = useState(true);
+    const [editingFormId, setEditingFormId] = useState(null);
+    const [statsFormId, setStatsFormId] = useState(null);
+
+    // Navigation de base
+    const navigate = useCallback((newPath) => {
+        window.history.pushState({}, '', newPath);
+        setPath(newPath);
+        // Réinitialiser les états spécifiques au formulaire/stats à chaque navigation
+        if (newPath === '/dashboard') {
+            setEditingFormId(null);
+            setStatsFormId(null);
+        }
+    }, []);
+
+    // Gestion du popstate (boutons Précédent/Suivant du navigateur)
     useEffect(() => {
         const handlePopState = () => setPath(window.location.pathname);
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
     }, []);
 
-    const navigate = (newPath) => {
-        window.history.pushState({}, '', newPath);
-        setPath(newPath);
+    // Chargement de l'utilisateur (token) au démarrage
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            checkAuth(token);
+        } else {
+            setLoadingAuth(false);
+            if (path !== '/' && !path.startsWith('/form/')) {
+                navigate('/');
+            }
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Dépendance vide pour s'exécuter une seule fois au montage
+
+    const checkAuth = async (token) => {
+        try {
+            const config = {
+                headers: { Authorization: `Bearer ${token}` }
+            };
+            const response = await axios.get(`${API_URL}/auth/me`, config);
+            setUser(response.data.user);
+            localStorage.setItem('token', token);
+            if (path === '/') {
+                 navigate('/dashboard'); // Redirige si connecté et sur la page d'accueil
+            }
+        } catch (err) {
+            handleLogout(false);
+        } finally {
+            setLoadingAuth(false);
+        }
     };
 
-    // Vérification de l'utilisateur au démarrage
-    useEffect(() => {
-        const verifyUser = async () => {
-            if (token) {
-                try {
-                    const response = await axios.get(`${API_URL}/auth/me`, {
-                        headers: { Authorization: `Bearer ${token}` }
-                    });
-                    setUser(response.data.user);
-                } catch (error) {
-                    console.error("Token non valide ou expiré.");
-                    handleLogout(false);
-                }
-            }
-            setLoading(false);
-        };
-        verifyUser();
-    }, [token]);
-
-    const handleAuth = (tokenData, userData) => {
-        localStorage.setItem('token', tokenData);
-        setToken(tokenData);
+    const handleAuthSuccess = (token, userData) => {
+        localStorage.setItem('token', token);
         setUser(userData);
         navigate('/dashboard');
     };
 
-    const handleLogout = (reload = true) => {
+    const handleLogout = (shouldNavigate = true) => {
         localStorage.removeItem('token');
-        setToken(null);
         setUser(null);
-        navigate('/');
-        if (reload) window.location.reload();
+        setEditingFormId(null);
+        setStatsFormId(null);
+        if (shouldNavigate) {
+            navigate('/');
+        }
     };
 
-    if (loading) {
-        return <div className="text-center mt-5">Chargement de l'application...</div>;
-    }
+    // Fonctions de navigation du Dashboard
+    const navigateToEditForm = (formId) => {
+        setEditingFormId(formId);
+        setStatsFormId(null);
+        navigate(`/edit/${formId || 'new'}`);
+    };
+    
+    const navigateToStats = (formId) => {
+        setStatsFormId(formId);
+        setEditingFormId(null);
+        navigate(`/stats/${formId}`);
+    };
 
     // Détermine quel composant afficher
     const renderRoute = () => {
         // Logique pour la page publique du formulaire (URL: /form/:token)
         if (path.startsWith('/form/')) {
-            const tokenMatch = path.match(/\/form\/([a-fA-F0-9]{24})$/); 
+            // 🎯 ROUTAGE PUBLIC : Regex relâchée pour accepter des tokens non-hexadécimaux
+            const tokenMatch = path.match(/\/form\/([a-zA-Z0-9_-]+)$/); 
+
             if (tokenMatch) {
                 return <PublicFormPage match={{ params: { token: tokenMatch[1] }} } apiUrl={API_URL} />;
             }
+            // Si le format n'est pas bon
+            return <div className="text-center mt-5"><Alert variant="danger">Erreur: Format de lien public invalide.</Alert></div>;
+        }
+
+        if (loadingAuth) {
+            return <div className="text-center mt-5">Chargement de l'application...</div>;
         }
 
         // Accès restreint au dashboard
-        if (user && path === '/dashboard') {
-            return <Dashboard user={user} token={token} apiUrl={API_URL} />;
-        }
-        
-        // Page d'accueil/Auth si non connecté
         if (!user) {
-            return <Auth onAuthSuccess={handleAuth} apiUrl={API_URL} />;
+            return <Auth onAuthSuccess={handleAuthSuccess} apiUrl={API_URL} />;
         }
 
-        // Redirection par défaut après connexion
-        if (user && path === '/') {
-            navigate('/dashboard');
+        if (path === '/dashboard' || path === '/') {
+            return <Dashboard 
+                        user={user} 
+                        apiUrl={API_URL} 
+                        token={localStorage.getItem('token')} 
+                        navigateToEditForm={navigateToEditForm}
+                        navigateToStats={navigateToStats}
+                    />;
+        }
+
+        if (path.startsWith('/edit/') && editingFormId) {
+            return <FormEditor 
+                        initialForm={{_id: editingFormId}} 
+                        onSaveSuccess={() => navigate('/dashboard')} 
+                        apiUrl={API_URL} 
+                        token={localStorage.getItem('token')}
+                    />;
+        }
+
+        if (path === '/edit/new') {
+             return <FormEditor 
+                        initialForm={null} 
+                        onSaveSuccess={() => navigate('/dashboard')} 
+                        apiUrl={API_URL} 
+                        token={localStorage.getItem('token')}
+                    />;
+        }
+
+        if (path.startsWith('/stats/') && statsFormId) {
+            return <FormStats 
+                        formId={statsFormId} 
+                        apiUrl={API_URL} 
+                        token={localStorage.getItem('token')}
+                        navigate={navigate}
+                    />;
         }
 
         // Si aucune route ne correspond
-        return <div className="text-center mt-5">Page 404 - Introuvable</div>;
+        return <div className="text-center mt-5"><Alert variant="warning">Page 404 - Introuvable</Alert></div>;
     };
 
-    // Le layout de l'application (Navbar)
     return (
         <>
-            {/* La Navbar n'est affichée que pour les vues d'administration (Auth ou Dashboard) */}
-            {path === '/' || path === '/dashboard' ? (
+            {/* Navbar affichée uniquement sur la page d'accueil ou le dashboard, et non sur le formulaire public */}
+            {path === '/' || path === '/dashboard' || path.startsWith('/edit/') || path.startsWith('/stats/') ? (
                 <Navbar bg="primary" variant="dark" expand="lg" className="mb-4">
                     <Container>
                         <Navbar.Brand onClick={() => navigate(user ? '/dashboard' : '/')} style={{ cursor: 'pointer' }}>
@@ -708,7 +818,7 @@ const App = () => {
                                 {user ? (
                                     <>
                                         <Navbar.Text className="me-3">
-                                            Bienvenue, **{user.companyName}**
+                                            Bienvenue, <strong className="text-white">{user.companyName}</strong>
                                         </Navbar.Text>
                                         <Button variant="outline-light" onClick={() => handleLogout(true)}>Déconnexion</Button>
                                     </>
@@ -721,6 +831,7 @@ const App = () => {
                 </Navbar>
             ) : null}
 
+            {/* Le container est "fluid" sur le formulaire public, sinon il est centré */}
             <Container fluid={path.startsWith('/form/')}>
                 {renderRoute()}
             </Container>
