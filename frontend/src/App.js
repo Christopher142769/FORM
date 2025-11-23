@@ -9,7 +9,7 @@ import {
 } from 'react-bootstrap';
 import { QRCodeSVG } from 'qrcode.react'; 
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://form-backend-pl5d.onrender.com/api';
 
 // --- PARTIE 1 : AUTHENTIFICATION (LOGIN/REGISTER) ---
 const Auth = ({ onAuthSuccess, apiUrl }) => {
