@@ -344,7 +344,7 @@ const Dashboard = ({ user, token, apiUrl }) => {
         }
         
         if (currentView === 'builder') {
-            const publicUrl = currentFormDetails.urlToken ? `http://localhost:3000/form/${currentFormDetails.urlToken}` : '';
+            const publicUrl = currentFormDetails.urlToken ? `https://startup-form.onrender.com/form/${currentFormDetails.urlToken}` : '';
             
             return (
                 <>
