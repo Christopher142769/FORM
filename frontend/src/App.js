@@ -1,4 +1,4 @@
-// client/src/App.js - TOUT LE FRONTEND EN UN SEUL FICHIER (FINAL V4 avec fix de l'ID d'upload)
+// client/src/App.js - TOUT LE FRONTEND EN UN SEUL FICHIER (FINAL V5 avec correction du lien public)
 
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
@@ -9,6 +9,7 @@ import {
 } from 'react-bootstrap';
 import { QRCodeSVG } from 'qrcode.react'; 
 
+// 💡 BONNE PRATIQUE: Utiliser une variable d'environnement si possible, mais gardons la constante pour ce fichier.
 const API_URL = 'https://form-backend-pl5d.onrender.com/api';
 
 // --- PARTIE 1 : AUTHENTIFICATION (LOGIN/REGISTER) ---
@@ -84,7 +85,7 @@ const Auth = ({ onAuthSuccess, apiUrl }) => {
 const FormBuilder = ({ form, setForm, onSave, onUploadLogo, isNewForm, token, apiUrl }) => {
     const [fieldLabel, setFieldLabel] = useState('');
     const [fieldType, setFieldType] = useState('text');
-    const [logoFile, setLogoFile] = useState(null); // Contient la Data URL temporaire
+    const [logoFile, setLogoFile] = useState(null); 
     const [uploadError, setUploadError] = useState('');
 
     const addField = () => {
@@ -108,7 +109,7 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, isNewForm, token, ap
         if (file) {
             const reader = new FileReader();
             reader.onloadend = () => {
-                setLogoFile(reader.result); // Stocke la Data URL Base64
+                setLogoFile(reader.result); 
                 setUploadError('');
             };
             reader.readAsDataURL(file);
@@ -117,22 +118,21 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, isNewForm, token, ap
 
     // LOGIQUE BASE64 : Envoyer la Data URL via JSON
     const handleLogoUpload = async () => {
-        // VÉRIFICATION EN LOGIQUE (MÊME SI LE BOUTON EST DÉSACTIVÉ)
         if (!logoFile) { 
             setUploadError("Veuillez d'abord sélectionner un fichier.");
             return;
         }
-        if (!form._id) { // Vérifie l'ID dans la logique
+        if (!form._id) { 
              setUploadError("Erreur: Le formulaire doit être sauvegardé avant d'uploader le logo.");
              return;
         }
 
         try {
             const response = await axios.post(`${apiUrl}/forms/${form._id}/logo`, 
-                { logoData: logoFile }, // Envoi du Base64 directement
+                { logoData: logoFile }, 
                 {
                     headers: { 
-                        'Content-Type': 'application/json', // Type JSON pour le Base64
+                        'Content-Type': 'application/json', 
                         'Authorization': `Bearer ${token}`
                     }
                 }
@@ -226,7 +226,7 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, isNewForm, token, ap
                         <Button 
                             variant="primary" 
                             onClick={handleLogoUpload} 
-                            disabled={!logoFile || !form._id} // Désactive si pas de fichier ou pas d'ID de formulaire
+                            disabled={!logoFile || !form._id} 
                         >
                             Uploader le Logo
                         </Button>
@@ -249,7 +249,8 @@ const Dashboard = ({ user, token, apiUrl }) => {
     const [forms, setForms] = useState([]);
     const [currentView, setCurrentView] = useState('list'); 
     const [selectedForm, setSelectedForm] = useState(null);
-    const [currentFormDetails, setCurrentFormDetails] = useState({ title: '', fields: [], logoPath: '' });
+    // 💡 AJOUT DE 'publicUrl' dans l'état initial
+    const [currentFormDetails, setCurrentFormDetails] = useState({ title: '', fields: [], logoPath: '', publicUrl: '' });
     const [stats, setStats] = useState(null);
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
@@ -275,7 +276,8 @@ const Dashboard = ({ user, token, apiUrl }) => {
     const handleNewForm = () => {
         setIsNewForm(true);
         setSelectedForm(null);
-        setCurrentFormDetails({ title: '', fields: [], logoPath: '' });
+        // 💡 AJOUT DE 'publicUrl' à la réinitialisation
+        setCurrentFormDetails({ title: '', fields: [], logoPath: '', publicUrl: '' }); 
         setQrCodeDataURL('');
         setCurrentView('builder');
     };
@@ -283,7 +285,8 @@ const Dashboard = ({ user, token, apiUrl }) => {
     const handleEditForm = (form) => {
         setIsNewForm(false);
         setSelectedForm(form);
-        setCurrentFormDetails({ ...form }); 
+        // La reconstruction de l'URL publique n'est pas nécessaire ici, elle sera faite après la première sauvegarde
+        setCurrentFormDetails({ ...form, publicUrl: '' }); 
         setQrCodeDataURL('');
         setCurrentView('builder');
     };
@@ -304,17 +307,20 @@ const Dashboard = ({ user, token, apiUrl }) => {
             });
 
             const savedForm = response.data.form;
+            // 💡 CORRECTION CRITIQUE: Récupération de l'URL publique générée par le backend
+            const generatedPublicUrl = response.data.publicUrl; 
             
             setSelectedForm(savedForm);
             setIsNewForm(false);
             setQrCodeDataURL(response.data.qrCodeDataURL);
             setSuccessMessage('Formulaire sauvegardé et lien public généré !');
             
-            // CORRECTION CRITIQUE: Mettre à jour currentFormDetails avec l'ID et le token après sauvegarde
+            // Mise à jour currentFormDetails avec l'ID, le token ET l'URL publique
             setCurrentFormDetails(prevDetails => ({
                 ...prevDetails,
                 _id: savedForm._id, 
                 urlToken: savedForm.urlToken,
+                publicUrl: generatedPublicUrl, // 💡 CORRECTION : Stockage de l'URL de production
             }));
 
 
@@ -344,14 +350,17 @@ const Dashboard = ({ user, token, apiUrl }) => {
         }
         
         if (currentView === 'builder') {
-            const publicUrl = currentFormDetails.urlToken ? `http://localhost:3000/form/${currentFormDetails.urlToken}` : '';
+            // 💡 CORRECTION : Utilisation de l'URL publique stockée, sinon vide.
+            const publicUrl = currentFormDetails.publicUrl || '';
             
             return (
                 <>
                     {successMessage && <Alert variant="success">{successMessage}</Alert>}
-                    {qrCodeDataURL && currentFormDetails.urlToken && (
+                    {/* Afficher le QR code et le lien seulement si l'URL est disponible (après sauvegarde) */}
+                    {qrCodeDataURL && publicUrl && (
                         <Card className="mb-4 p-3 text-center bg-light">
                             <h5>QR Code et Lien Public</h5>
+                            {/* Le QR codeDataURL contient la bonne URL générée par le backend */}
                             <QRCodeSVG value={publicUrl} size={128} level="H" includeMargin={true} />
                             
                             <p className="mt-2">
@@ -483,6 +492,7 @@ const PublicFormPage = ({ match, apiUrl }) => {
                 setFormDetails(response.data);
                 
                 const initialData = response.data.fields.reduce((acc, field) => {
+                    // Simplification de la clé du formulaire (bonne pratique pour le JSON)
                     const key = field.label.toLowerCase().replace(/\s/g, '_'); 
                     acc[key] = field.type === 'checkbox' ? false : '';
                     return acc;
@@ -661,7 +671,7 @@ const App = () => {
     const renderRoute = () => {
         // Logique pour la page publique du formulaire (URL: /form/:token)
         if (path.startsWith('/form/')) {
-            const tokenMatch = path.match(/\/form\/([a-fA-F0-9]{24})$/); // Simple match de l'ObjectId de 24 caractères
+            const tokenMatch = path.match(/\/form\/([a-fA-F0-9]{24})$/); 
             if (tokenMatch) {
                 return <PublicFormPage match={{ params: { token: tokenMatch[1] }} } apiUrl={API_URL} />;
             }
