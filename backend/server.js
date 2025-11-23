@@ -1,4 +1,4 @@
-// server/server.js - TOUT LE BACKEND EN UN SEUL FICHIER (FINAL + ENV VARS V2)
+// server/server.js - TOUT LE BACKEND EN UN SEUL FICHIER (FINAL + ENV VARS V3)
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -170,8 +170,15 @@ app.post('/api/forms', protect, async (req, res) => {
         // 💡 UTILISATION SANS SLASH: Assure la compatibilité
         let publicUrl = `${FRONTEND_URL}/form/${form.urlToken}`;
         
-        // 3. Génération du QR Code
-        const qrCodeDataURL = await QRCode.toDataURL(publicUrl);
+        // 3. Génération du QR Code (AJOUT DU TRY/CATCH)
+        let qrCodeDataURL = '';
+        try {
+            qrCodeDataURL = await QRCode.toDataURL(publicUrl);
+        } catch (qrError) {
+            console.error("Erreur lors de la génération du QR Code:", qrError.message);
+            // On s'assure que qrCodeDataURL est une chaîne vide pour ne pas crasher le frontend
+            qrCodeDataURL = ''; 
+        }
 
         // 4. Réponse
         res.status(isNew ? 201 : 200).json({ 
@@ -225,16 +232,26 @@ app.post('/api/forms/:id/logo', protect, async (req, res) => {
 // C. Routes Publiques (Soumission) (INCHANGÉES)
 app.get('/api/public/form/:token', async (req, res) => {
     try {
-        const form = await Form.findOne({ urlToken: req.params.token }).select('title fields logoPath urlToken');
+        const form = await Form.findOne({ urlToken: req.params.token }).select('title fields logoPath urlToken views submissions');
         if (!form) {
             return res.status(404).json({ message: 'Formulaire non trouvé.' });
         }
         
-        form.views += 1;
+        // 🚨 Assurez-vous que cette ligne est correcte pour éviter un 500
+        form.views = (form.views || 0) + 1;
         await form.save();
+        
+        // Renvoie uniquement les champs publics
+        const publicForm = {
+            _id: form._id,
+            title: form.title,
+            fields: form.fields,
+            logoPath: form.logoPath,
+        };
 
-        res.json(form);
+        res.json(publicForm);
     } catch (error) {
+        console.error("Erreur lors de l'accès au formulaire public:", error);
         res.status(500).json({ message: 'Erreur lors de la récupération du formulaire.' });
     }
 });
