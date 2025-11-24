@@ -1,4 +1,4 @@
-// client/src/App.js - V11 Ultra-Design + Theme Switch Global (FIX PUBLIC URL) + REQUIRED FIELD + NAVBAR REFACTOR
+// client/src/App.js - V12 FINAL FRONTEND : Nouvelle Structure de Champs, Options, File Config, Logique Conditionnelle (Placeholder)
 
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
@@ -187,20 +187,61 @@ const Auth = ({ onAuthSuccess, apiUrl, navigate }) => {
 const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => {
     const [fieldLabel, setFieldLabel] = useState('');
     const [fieldType, setFieldType] = useState('text');
-    // 💡 MODIFICATION : Nouvel état pour gérer l'obligation
     const [fieldRequired, setFieldRequired] = useState(true); 
     const [logoFile, setLogoFile] = useState(null); 
     const [uploadError, setUploadError] = useState('');
+    
+    // 💡 NOUVEAUX ÉTATS POUR LES OPTIONS ET FICHIERS
+    const [fieldOptions, setFieldOptions] = useState(''); // Options séparées par des virgules
+    const [maxSizeMB, setMaxSizeMB] = useState(10); 
+    const [allowedTypes, setAllowedTypes] = useState(['document']);
 
     const addField = () => {
         if (fieldLabel.trim()) {
+            let newField = { 
+                label: fieldLabel, 
+                type: fieldType, 
+                required: fieldRequired,
+                // Initialiser les nouvelles propriétés pour le stockage Mongoose
+                options: [],
+                fileConfig: {},
+                conditionalLogic: []
+            };
+
+            // Ajout des options pour les types basés sur un choix
+            if (['radio', 'select', 'checkbox'].includes(fieldType)) {
+                // Convertit la chaîne d'options (séparées par des virgules) en tableau
+                const optionsArray = fieldOptions.split(',').map(opt => opt.trim()).filter(opt => opt.length > 0);
+                if (optionsArray.length === 0) {
+                    alert("Veuillez entrer au moins une option pour ce type de champ.");
+                    return;
+                }
+                newField.options = optionsArray;
+            }
+
+            // Ajout de la configuration pour le type 'file'
+            if (fieldType === 'file') {
+                if (allowedTypes.length === 0) {
+                     alert("Veuillez sélectionner au moins un type de fichier autorisé.");
+                    return;
+                }
+                newField.fileConfig = {
+                    maxSizeMB: parseInt(maxSizeMB),
+                    allowedTypes: allowedTypes
+                };
+            }
+
             setForm({
                 ...form,
-                // 💡 MODIFICATION : Inclure l'état 'required' dans le nouveau champ
-                fields: [...form.fields, { label: fieldLabel, type: fieldType, required: fieldRequired }]
+                fields: [...form.fields, newField]
             });
+            
+            // Réinitialisation des états
             setFieldLabel('');
-            setFieldRequired(true); // Réinitialiser pour le champ suivant
+            setFieldRequired(true);
+            setFieldOptions('');
+            setMaxSizeMB(10);
+            setAllowedTypes(['document']);
         }
     };
 
@@ -297,30 +338,37 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                             <Form.Label>Type de Champ</Form.Label>
                             <Form.Select 
                                 value={fieldType} 
-                                onChange={(e) => setFieldType(e.target.value)} 
+                                onChange={(e) => {
+                                    setFieldType(e.target.value);
+                                    setFieldOptions(''); // Réinitialiser les options si le type change
+                                }} 
                                 className="custom-select"
                             >
                                 <option value="text">Texte Court</option>
                                 <option value="textarea">Paragraphe</option>
                                 <option value="email">Email</option>
                                 <option value="number">Nombre</option>
-                                <option value="checkbox">Case à cocher</option>
+                                <option value="radio">Bouton Radio (Choix unique)</option>
+                                <option value="select">Liste Déroulante (Choix unique)</option>
+                                <option value="checkbox">Case(s) à cocher (Multiple)</option>
+                                <option value="file">Upload de Fichier</option>
                             </Form.Select>
                         </Form.Group>
                     </Col>
                     <Col xs={12} md={4}>
                         <Form.Group>
-                            <Form.Label>Étiquette du Champ</Form.Label> 
+                            {/* 💡 MODIFICATION : Label du champ devient la Question/Titre */}
+                            <Form.Label>Question / Titre</Form.Label> 
                             <Form.Control 
                                 type="text" 
-                                placeholder="Ex: Votre Nom Complet" 
+                                placeholder="Ex: Quel est votre Nom Complet ?" 
                                 value={fieldLabel} 
                                 onChange={(e) => setFieldLabel(e.target.value)} 
                                 className="custom-input"
                             />
                         </Form.Group>
                     </Col>
-                    {/* 💡 MODIFICATION : Ajout du contrôle 'Obligatoire' */}
+                    
                     <Col xs={6} md={2}>
                         <Form.Group>
                             <Form.Label>Obligatoire</Form.Label>
@@ -333,7 +381,7 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                             />
                         </Form.Group>
                     </Col>
-                    
+
                     <Col xs={6} md={2} className="d-grid">
                         <Button 
                             onClick={addField} 
@@ -343,7 +391,86 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                             + Ajouter
                         </Button>
                     </Col>
+                    
+                    {/* 💡 NOUVEAU : Champ d'options pour les types de choix */}
+                    {['radio', 'select', 'checkbox'].includes(fieldType) && (
+                        <Col xs={12}>
+                            <Form.Group>
+                                <Form.Label>Options de Choix <span className="text-muted">(Séparées par des virgules)</span></Form.Label>
+                                <Form.Control
+                                    type="text"
+                                    placeholder="Ex: Option 1, Option 2, Autre Choix"
+                                    value={fieldOptions}
+                                    onChange={(e) => setFieldOptions(e.target.value)}
+                                    className="custom-input"
+                                />
+                            </Form.Group>
+                        </Col>
+                    )}
+                    
+                    {/* 💡 NOUVEAU : Configuration de l'upload pour le type 'file' */}
+                    {fieldType === 'file' && (
+                        <Row className="g-3 mt-1 px-0 mx-0">
+                            <Col xs={12} md={3}>
+                                <Form.Group>
+                                    <Form.Label>Taille Max (Mo)</Form.Label>
+                                    <Form.Control
+                                        type="number"
+                                        value={maxSizeMB}
+                                        onChange={(e) => setMaxSizeMB(e.target.value)}
+                                        min="1"
+                                        max="50"
+                                        className="custom-input"
+                                    />
+                                </Form.Group>
+                            </Col>
+                            <Col xs={12} md={9}>
+                                <Form.Group>
+                                    <Form.Label>Types Autorisés</Form.Label>
+                                    <div className="d-flex flex-wrap gap-3 mt-2">
+                                        <Form.Check
+                                            type="checkbox"
+                                            label="Image (.jpg, .png, etc.)"
+                                            checked={allowedTypes.includes('image')}
+                                            onChange={(e) => setAllowedTypes(prev => 
+                                                e.target.checked ? [...prev, 'image'] : prev.filter(t => t !== 'image')
+                                            )}
+                                            id="check-image"
+                                            className="custom-checkbox"
+                                        />
+                                        <Form.Check
+                                            type="checkbox"
+                                            label="Document (.pdf, .docx, etc.)"
+                                            checked={allowedTypes.includes('document')}
+                                            onChange={(e) => setAllowedTypes(prev => 
+                                                e.target.checked ? [...prev, 'document'] : prev.filter(t => t !== 'document')
+                                            )}
+                                            id="check-document"
+                                            className="custom-checkbox"
+                                        />
+                                        <Form.Check
+                                            type="checkbox"
+                                            label="Autre (Tout type)"
+                                            checked={allowedTypes.includes('other')}
+                                            onChange={(e) => setAllowedTypes(prev => 
+                                                e.target.checked ? [...prev, 'other'] : prev.filter(t => t !== 'other')
+                                            )}
+                                            id="check-other"
+                                            className="custom-checkbox"
+                                        />
+                                    </div>
+                                    <small className="text-muted">
+                                        L'upload réel des fichiers nécessite une mise à jour du backend.
+                                    </small>
+                                </Form.Group>
+                            </Col>
+                        </Row>
+                    )}
                 </Row>
+                
+                {/* 💡 NOTE: Logique Conditionnelle - Devra être ajoutée ici sous forme de composant d'édition */}
+                {/* Pour chaque champ existant, on pourrait ajouter un bouton "Ajouter Logique" */}
+
 
                 <h5 className="mt-4 mb-3 section-title-with-pill">
                     Champs Actuels <span className="section-pill">{form.fields.length}</span>
@@ -356,10 +483,19 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                         >
                             <div className="me-3">
                                 <span className="field-label-main">{field.label}</span>
-                                <span className="field-type-pill">{field.type}</span>
-                                {/* 💡 MODIFICATION : Afficher l'état 'Obligatoire' */}
+                                <span className="field-type-pill">{field.type.toUpperCase()}</span>
+                                {field.options && field.options.length > 0 && (
+                                    <span className="field-options-pill">
+                                        Options: {field.options.slice(0, 3).join(', ')}{field.options.length > 3 ? '...' : ''}
+                                    </span>
+                                )}
                                 {field.required !== false && (
                                     <span className="field-required-pill">Obligatoire</span>
+                                )}
+                                {field.type === 'file' && field.fileConfig && (
+                                    <span className="field-file-config-pill">
+                                        Fichier: {field.fileConfig.maxSizeMB}MB max
+                                    </span>
                                 )}
                             </div>
                             <Button 
@@ -416,8 +552,9 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
     );
 };
 
-// --- PARTIE 3 : DASHBOARD ---
+// --- PARTIE 3 : DASHBOARD (INCHANGÉE) ---
 const Dashboard = ({ user, token, apiUrl }) => {
+    // ... code inchangé ...
     const [forms, setForms] = useState([]);
     const [currentView, setCurrentView] = useState('list'); 
     const [selectedForm, setSelectedForm] = useState(null);
@@ -447,7 +584,6 @@ const Dashboard = ({ user, token, apiUrl }) => {
     const handleNewForm = () => {
         setIsNewForm(true);
         setSelectedForm(null);
-        // 💡 MODIFICATION : Initialiser `required: true` par défaut pour le constructeur (ou le laisser vide pour que le builder l'ajoute)
         setCurrentFormDetails({ title: '', fields: [], logoPath: '', publicUrl: '' }); 
         setQrCodeDataURL('');
         setCurrentView('builder');
@@ -753,9 +889,27 @@ const PublicFormPage = ({ match, apiUrl }) => {
                 const response = await axios.get(`${apiUrl}/public/form/${urlToken}`);
                 setFormDetails(response.data);
 
+                // Initialisation des données de formulaire
                 const initialData = response.data.fields.reduce((acc, field) => {
-                    const key = field.label.toLowerCase().replace(/\s/g, '_');
-                    acc[key] = field.type === 'checkbox' ? false : '';
+                    // Créer une clé unique pour le champ basée sur le label
+                    const key = field.label.toLowerCase().replace(/[^a-z0-9]/g, '_'); 
+                    
+                    if (field.type === 'checkbox' && field.options) {
+                        // Pour les groupes de cases à cocher, initialiser chaque option à false
+                        field.options.forEach(option => {
+                            const optionKey = `${key}_${option.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+                            acc[optionKey] = false;
+                        });
+                    } else if (field.type === 'file') {
+                        // Pour l'upload, on stocke l'objet File
+                        acc[key] = null;
+                    } else if (field.type === 'select') {
+                         // Pour les selects, on initialise à vide (pour afficher l'option disabled)
+                        acc[key] = '';
+                    } else {
+                        // Texte, email, number, radio
+                        acc[key] = '';
+                    }
                     return acc;
                 }, {});
                 setFormData(initialData);
@@ -772,22 +926,71 @@ const PublicFormPage = ({ match, apiUrl }) => {
     }, [urlToken, apiUrl]);
 
     const handleChange = (key, e, type) => {
-        const value = type === 'checkbox' ? e.target.checked : e.target.value;
+        let value;
+
+        if (type === 'checkbox') {
+            value = e.target.checked;
+        } else if (type === 'file') {
+            // Stocker le fichier sélectionné
+            value = e.target.files[0];
+        } else {
+            value = e.target.value;
+        }
+
         setFormData(prev => ({ ...prev, [key]: value }));
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setSubmitStatus({ message: 'Envoi en cours...', variant: 'info' });
+        
+        // 🚨 ATTENTION : Gestion du Fichier pour l'API
+        // Les fichiers doivent être envoyés via FormData, pas JSON.
+        const dataToSend = new FormData();
+
+        // 1. Ajouter les champs texte/choix au FormData
+        Object.keys(formData).forEach(key => {
+            const value = formData[key];
+            
+            // Si c'est un File (d'un champ 'file'), l'ajouter comme fichier
+            if (value instanceof File) {
+                 dataToSend.append(key, value);
+            } else if (value !== null && value !== '') {
+                 // Ajouter toutes les autres données (textes, radios, selects, etc.)
+                dataToSend.append(key, value.toString());
+            }
+        });
+        
+        // La soumission JSON est gérée par défaut pour les champs sans fichier.
+        // Si dataToSend ne contient que du texte, l'API backend actuelle (JSON) fonctionnera.
+        // Si dataToSend contient des fichiers, l'API backend doit être mise à jour (multer/multipart).
+
         try {
-            await axios.post(`${apiUrl}/public/form/${urlToken}/submit`, formData);
+            // Si des fichiers sont présents, axios doit envoyer 'multipart/form-data'
+            const hasFiles = Object.values(formData).some(value => value instanceof File);
+            
+            let response;
+            if (hasFiles) {
+                 // Tenter l'envoi multipart (nécessite un backend compatible)
+                 response = await axios.post(`${apiUrl}/public/form/${urlToken}/submit`, dataToSend, {
+                    headers: { 'Content-Type': 'multipart/form-data' } 
+                 });
+            } else {
+                // Envoyer en JSON (backend actuel)
+                response = await axios.post(`${apiUrl}/public/form/${urlToken}/submit`, formData);
+            }
+
             setSubmitStatus({
                 message: '✅ Merci ! Votre réponse a bien été enregistrée.',
                 variant: 'success',
             });
+            // Réinitialiser les données après soumission réussie si nécessaire
+            // setFormData({}); 
+
         } catch (error) {
+             console.error("Erreur de soumission:", error.response || error);
             setSubmitStatus({
-                message: '❌ Erreur lors de la soumission. Veuillez réessayer.',
+                message: '❌ Erreur lors de la soumission. Vérifiez les champs et la taille des fichiers.',
                 variant: 'error',
             });
         }
@@ -818,6 +1021,15 @@ const PublicFormPage = ({ match, apiUrl }) => {
             </div>
         );
     }
+
+    // Fonction utilitaire pour générer l'attribut accept pour le champ file
+    const getFileAccept = (allowedTypes) => {
+        let accepts = [];
+        if (allowedTypes.includes('image')) accepts.push('image/*');
+        if (allowedTypes.includes('document')) accepts.push('.pdf,.doc,.docx,.xlsx,.xls,.txt');
+        if (allowedTypes.includes('other')) accepts.push('*');
+        return accepts.join(',');
+    };
 
     return (
         <div className="pf-bg">
@@ -858,71 +1070,152 @@ const PublicFormPage = ({ match, apiUrl }) => {
 
                     <form onSubmit={handleSubmit} className="pf-form">
                         {formDetails.fields.map((field, index) => {
-                            const key = field.label.toLowerCase().replace(/\s/g, '_');
-                            // 💡 MODIFICATION : Récupérer l'état obligatoire, par défaut VRAI
+                            // Clé unique pour le champ (label nettoyé)
+                            const key = field.label.toLowerCase().replace(/[^a-z0-9]/g, '_'); 
                             const isRequired = field.required !== false; 
+                            const fieldId = `field-${index}`;
+                            
+                            // 💡 LOGIQUE CONDITIONNELLE : 
+                            // Pour une implémentation complète, cette section devrait vérifier 
+                            // field.conditionalLogic et l'état de formData pour décider du rendu.
+                            // Pour l'instant, tous les champs sont affichés.
+                            
+                            let inputElement;
 
-                            if (field.type === 'checkbox') {
-                                return (
-                                    <label
-                                        className="pf-field pf-field--checkbox"
-                                        key={index}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={!!formData[key]}
-                                            onChange={(e) =>
-                                                handleChange(key, e, 'checkbox')
-                                            }
-                                            className="pf-checkbox"
-                                            // 💡 MODIFICATION : Ajouter l'attribut required
-                                            required={isRequired}
-                                        />
-                                        <span className="pf-checkbox-label">
-                                            {field.label}
-                                            {/* 💡 MODIFICATION : Afficher l'astérisque */}
-                                            {isRequired && <span className="pf-required">*</span>}
-                                        </span>
-                                    </label>
-                                );
-                            }
-
-                            return (
-                                <div className="pf-field" key={index}>
-                                    <label className="pf-label">
-                                        {field.label}
-                                        {/* 💡 MODIFICATION : Afficher l'astérisque si obligatoire */}
-                                        {isRequired && <span className="pf-required">*</span>}
-                                    </label>
-
-                                    {field.type === 'textarea' ? (
+                            switch (field.type) {
+                                case 'textarea':
+                                    inputElement = (
                                         <textarea
                                             className="pf-input pf-input--textarea"
                                             value={formData[key] || ''}
-                                            onChange={(e) =>
-                                                handleChange(key, e, 'text')
-                                            }
-                                            // 💡 MODIFICATION : Ajouter l'attribut required
+                                            onChange={(e) => handleChange(key, e, 'text')}
                                             required={isRequired}
                                         />
-                                    ) : (
+                                    );
+                                    break;
+                                    
+                                case 'file':
+                                    const acceptTypes = field.fileConfig ? getFileAccept(field.fileConfig.allowedTypes) : '*';
+                                    inputElement = (
+                                        <input
+                                            type="file"
+                                            className="pf-input pf-input--file"
+                                            onChange={(e) => handleChange(key, e, 'file')}
+                                            required={isRequired}
+                                            accept={acceptTypes}
+                                        />
+                                    );
+                                    break;
+
+                                case 'select':
+                                    if (field.options && field.options.length > 0) {
+                                        inputElement = (
+                                            <select
+                                                className="pf-input pf-input--select"
+                                                value={formData[key] || ''}
+                                                onChange={(e) => handleChange(key, e, 'text')}
+                                                required={isRequired}
+                                            >
+                                                <option value="" disabled>Sélectionner une option</option>
+                                                {field.options.map((option, optIndex) => (
+                                                    <option key={optIndex} value={option}>{option}</option>
+                                                ))}
+                                            </select>
+                                        );
+                                    } else {
+                                        inputElement = <p className="text-danger small">Erreur: Aucune option configurée.</p>;
+                                    }
+                                    break;
+
+                                case 'radio':
+                                    if (field.options && field.options.length > 0) {
+                                        inputElement = (
+                                            <div className="pf-radio-group">
+                                                {field.options.map((option, optIndex) => (
+                                                    <label key={optIndex} className="pf-radio-label">
+                                                        <input
+                                                            type="radio"
+                                                            name={key}
+                                                            value={option}
+                                                            checked={formData[key] === option}
+                                                            onChange={(e) => handleChange(key, e, 'text')}
+                                                            required={isRequired}
+                                                        />
+                                                        {option}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        );
+                                    } else {
+                                        inputElement = <p className="text-danger small">Erreur: Aucune option configurée.</p>;
+                                    }
+                                    break;
+                                
+                                case 'checkbox':
+                                    // Gérer les cases à cocher multiples
+                                    if (field.options && field.options.length > 0) {
+                                         inputElement = (
+                                            <div className="pf-checkbox-group">
+                                                {field.options.map((option, optIndex) => {
+                                                    const optionKey = `${key}_${option.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+                                                    return (
+                                                        <label key={optIndex} className="pf-checkbox-label">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={!!formData[optionKey]}
+                                                                onChange={(e) => handleChange(optionKey, e, 'checkbox')}
+                                                                // Le 'required' est complexe ici, on ne l'applique pas aux options individuelles
+                                                            />
+                                                            {option}
+                                                        </label>
+                                                    );
+                                                })}
+                                                {/* On pourrait ajouter ici une validation JavaScript pour le groupe required */}
+                                            </div>
+                                        );
+                                    } else {
+                                        // Case à cocher simple (si pas d'options) - comportement comme l'ancienne version
+                                        inputElement = (
+                                            <label className="pf-field pf-field--checkbox">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={!!formData[key]}
+                                                    onChange={(e) => handleChange(key, e, 'checkbox')}
+                                                    className="pf-checkbox"
+                                                    required={isRequired}
+                                                />
+                                                <span className="pf-checkbox-label">
+                                                    {field.label}
+                                                    {isRequired && <span className="pf-required">*</span>}
+                                                </span>
+                                            </label>
+                                        );
+                                    }
+                                    break;
+
+                                default: // text, email, number
+                                    inputElement = (
                                         <input
                                             className="pf-input"
-                                            type={
-                                                field.type === 'email'
-                                                    ? 'email'
-                                                    : field.type === 'number'
-                                                    ? 'number'
-                                                    : 'text'
-                                            }
+                                            type={field.type === 'email' ? 'email' : field.type === 'number' ? 'number' : 'text'}
                                             value={formData[key] || ''}
-                                            onChange={(e) =>
-                                                handleChange(key, e, 'text')
-                                            }
-                                            // 💡 MODIFICATION : Ajouter l'attribut required
+                                            onChange={(e) => handleChange(key, e, 'text')}
                                             required={isRequired}
                                         />
-                                    )}
+                                    );
+                            }
+
+                            return (
+                                <div className="pf-field" key={index} id={fieldId}>
+                                    {/* On affiche le label seulement si ce n'est pas une case à cocher simple */}
+                                    {field.type !== 'checkbox' || (field.type === 'checkbox' && field.options && field.options.length > 0) ? (
+                                        <label className="pf-label">
+                                            {field.label}
+                                            {isRequired && <span className="pf-required">*</span>}
+                                        </label>
+                                    ) : null}
+                                    
+                                    {inputElement}
                                 </div>
                             );
                         })}
@@ -944,8 +1237,9 @@ const PublicFormPage = ({ match, apiUrl }) => {
 
 
 
-// --- PARTIE 5 : APP PRINCIPALE ---
+// --- PARTIE 5 : APP PRINCIPALE (INCHANGÉE) ---
 const App = () => {
+    // ... code inchangé ...
     const [user, setUser] = useState(null);
     const [token, setToken] = useState(localStorage.getItem('token') || null);
     const [loading, setLoading] = useState(true);
