@@ -1,4 +1,4 @@
-// server/server.js - BACKEND FINAL (v2.0 : Nouvelle Structure de Champs + Logique Conditionnelle Initiale + Upload Config)
+// server/server.js - BACKEND FINAL (v2.1 : Exportation CSV/Excel + Logique Conditionnelle Schema)
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -33,279 +33,317 @@ mongoose.connect(MONGODB_URI)
     .catch(err => console.error('Erreur de connexion à MongoDB:', err));
 
 
-// --- 3. Modèles Mongoose ---
+// --- 3. Schémas et Modèles Mongoose ---
 
-// Schéma pour l'Utilisateur (Entreprise) (INCHANGÉ)
+// Schéma de l'utilisateur
 const UserSchema = new mongoose.Schema({
-    email: { type: String, required: true, unique: true },
+    username: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    companyName: { type: String, required: true },
-    createdAt: { type: Date, default: Date.now }
+    companyName: { type: String, default: 'Mon Entreprise' }
 });
-UserSchema.pre('save', async function(next) {
-    if (this.isModified('password')) {
-        this.password = await bcrypt.hash(this.password, 10);
-    }
-    next();
-});
-const User = mongoose.model('User', UserSchema);
 
-// Schéma pour le Formulaire
+// Schéma pour les soumissions
+const SubmissionSchema = new mongoose.Schema({
+    submittedAt: { type: Date, default: Date.now },
+    data: { type: mongoose.Schema.Types.Mixed, required: true }, // Pour stocker les données variables
+});
+
+// Schéma pour un champ (inclut la configuration de l'upload et la logique conditionnelle)
+const FieldSchema = new mongoose.Schema({
+    _id: { type: String, required: true }, // ID unique pour la manipulation côté client
+    type: { type: String, required: true }, // ex: text, email, radio, select, file
+    label: { type: String, required: true },
+    placeholder: { type: String },
+    required: { type: Boolean, default: false }, 
+    options: [String], // Pour radio/select
+    conditionalLogic: [{ // 💡 Stockage de la logique conditionnelle
+        value: { type: String, required: true }, // La valeur de l'option qui déclenche
+        showFieldId: { type: String, required: true } // L'ID du champ à afficher
+    }],
+    fileConfig: { // Configuration pour les champs de type 'file'
+        maxSize: { type: Number, default: 2 }, // Taille max en MB
+        allowedTypes: [String], // ex: ['image/png', 'application/pdf']
+    }
+}, { _id: false }); // Important: ne pas créer un _id Mongoose par défaut pour le FieldSchema
+
+// Schéma du formulaire (le conteneur principal)
 const FormSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    token: { type: String, unique: true, required: true }, // Jeton public (UUID)
     title: { type: String, required: true },
-    fields: [{
-        // 💡 REFACTO : Le label est la Question/Titre
-        label: { type: String, required: true },
-        // 💡 MISE À JOUR : Ajout de nouveaux types de champs
-        type: { 
-            type: String, 
-            required: true, 
-            enum: ['text', 'textarea', 'email', 'number', 'checkbox', 'radio', 'select', 'file'] 
-        },
-        // 💡 Ajout du champ 'required'
-        required: { type: Boolean, default: true }, 
-
-        // 💡 NOUVEAU : Pour les types 'radio', 'select', 'checkbox' (multiple)
-        options: [String], 
-        
-        // 💡 NOUVEAU : Configuration pour le type 'file'
-        fileConfig: {
-            maxSizeMB: { type: Number, default: 10 }, // Limite de 10 Mo
-            // Types simplifiés pour la démo: image, document, ou autre
-            allowedTypes: [{ 
-                type: String, 
-                enum: ['image', 'document', 'other'], 
-                default: 'document' 
-            }]
-        },
-
-        // 💡 NOUVEAU : Configuration de la Logique Conditionnelle
-        conditionalLogic: {
-            type: [{
-                // La valeur de l'option qui déclenche (e.g., 'Oui')
-                value: String,
-                // L'ID/Token du prochain champ à afficher (correspond au field._id)
-                showFieldId: String 
-            }],
-            default: []
-        }
-    }],
-    logoPath: { type: String, default: '' }, 
-    urlToken: { type: String, unique: true },
-    views: { type: Number, default: 0 },
-    submissions: [{
-        // 🚨 IMPORTANT : Pour l'upload de fichiers, on stockerait ici l'URL du fichier uploadé.
-        data: { type: mongoose.Schema.Types.Mixed }, 
-        submittedAt: { type: Date, default: Date.now }
-    }],
-    createdAt: { type: Date, default: Date.now }
+    description: { type: String, default: '' },
+    isPublished: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now },
+    logoBase64: { type: String, default: null }, // Pour stocker le logo en Base64
+    fields: [FieldSchema], // Tableau des champs du formulaire
+    submissions: [SubmissionSchema], // Tableau des soumissions reçues
+    views: { type: Number, default: 0 }, // Compteur de vues
 });
 
-FormSchema.pre('save', async function(next) {
-    if (this.isNew && !this.urlToken) {
-        // Utilisation de l'ID Mongoose comme token initial
-        this.urlToken = this._id.toString(); 
-    }
-    next();
-});
 
+const User = mongoose.model('User', UserSchema);
 const Form = mongoose.model('Form', FormSchema);
 
-// --- 4. Middleware d'Authentification (INCHANGÉ) ---
-const protect = (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ message: 'Authentification requise.' });
+
+// --- 4. Middleware d'Authentification (JWT) ---
+const protect = async (req, res, next) => {
+    let token;
+
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+        try {
+            // Get token from header
+            token = req.headers.authorization.split(' ')[1];
+
+            // Verify token
+            const decoded = jwt.verify(token, JWT_SECRET);
+
+            // Get user id from token payload
+            req.user = decoded.id; 
+
+            next();
+        } catch (error) {
+            console.error(error);
+            res.status(401).json({ message: 'Non autorisé, jeton invalide' });
+        }
     }
-    const token = authHeader.split(' ')[1];
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        req.user = decoded.userId; 
-        next();
-    } catch (err) {
-        res.status(401).json({ message: 'Token invalide ou expiré.' });
+
+    if (!token) {
+        res.status(401).json({ message: 'Non autorisé, pas de jeton' });
     }
 };
 
 // --- 5. Routes API ---
 
-// A. Authentification (INCHANGÉES)
+// A. Authentification
 app.post('/api/auth/register', async (req, res) => {
+    const { username, password, companyName } = req.body;
+
+    if (!username || !password) {
+        return res.status(400).json({ message: 'Veuillez fournir un nom d\'utilisateur et un mot de passe.' });
+    }
+
     try {
-        const { email, password, companyName } = req.body;
-        if (!email || !password || !companyName) {
-            return res.status(400).json({ message: 'Tous les champs sont requis.' });
+        const userExists = await User.findOne({ username });
+        if (userExists) {
+            return res.status(400).json({ message: 'Ce nom d\'utilisateur existe déjà.' });
         }
-        const user = new User({ email, password, companyName });
-        await user.save();
-        const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '1h' });
-        res.status(201).json({ token, user: { _id: user._id, email: user.email, companyName: user.companyName } });
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        const user = await User.create({
+            username,
+            password: hashedPassword,
+            companyName: companyName || 'Mon Entreprise'
+        });
+
+        const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '30d' });
+
+        res.status(201).json({
+            _id: user._id,
+            username: user.username,
+            companyName: user.companyName,
+            token,
+        });
+
     } catch (error) {
-        if (error.code === 11000) return res.status(400).json({ message: 'Cet email est déjà utilisé.' });
-        res.status(500).json({ message: 'Erreur lors de l\'inscription.' });
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de l\'enregistrement de l\'utilisateur.' });
     }
 });
 
 app.post('/api/auth/login', async (req, res) => {
+    const { username, password } = req.body;
+
     try {
-        const { email, password } = req.body;
-        const user = await User.findOne({ email });
-        if (!user || !(await bcrypt.compare(password, user.password))) {
-            return res.status(401).json({ message: 'Email ou mot de passe incorrect.' });
+        const user = await User.findOne({ username });
+
+        if (user && (await bcrypt.compare(password, user.password))) {
+            const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '30d' });
+
+            res.json({
+                _id: user._id,
+                username: user.username,
+                companyName: user.companyName,
+                token,
+            });
+        } else {
+            res.status(401).json({ message: 'Identifiants invalides' });
         }
-        const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '1h' });
-        res.json({ token, user: { _id: user._id, email: user.email, companyName: user.companyName } });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ message: 'Erreur lors de la connexion.' });
     }
 });
 
-app.get('/api/auth/me', protect, async (req, res) => {
-    try {
-        const user = await User.findById(req.user).select('-password');
-        if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé.' });
-        res.json({ user });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur de vérification du token.' });
-    }
-});
-
-// B. Gestion des Formulaires (Dashboard)
+// B. Gestion des Formulaires (CRUD)
 app.post('/api/forms', protect, async (req, res) => {
+    const { title } = req.body;
+
+    if (!title) {
+        return res.status(400).json({ message: 'Le titre du formulaire est requis.' });
+    }
+
     try {
-        const { _id, title, fields } = req.body;
-        let form;
-        let isNew = false;
-        
-        if (_id) {
-            form = await Form.findOne({ _id, userId: req.user });
-            if (!form) return res.status(404).json({ message: 'Formulaire non trouvé.' });
-            form.title = title;
-            form.fields = fields; // Mongoose acceptera la nouvelle structure de champs
-        } else {
-            isNew = true;
-            form = new Form({ userId: req.user, title, fields });
-        }
-        
-        await form.save(); // Le .save() assure que le urlToken est généré si c'est un nouveau form
+        // Générer un jeton simple pour l'URL publique
+        const token = new mongoose.Types.ObjectId().toHexString(); // Simule un token unique simple
 
-        // 2. Génération du Lien Public
-        if (!FRONTEND_URL) {
-            return res.status(500).json({ message: "Erreur de configuration : FRONTEND_URL non défini." });
-        }
-        let publicUrl = `${FRONTEND_URL}/form/${form.urlToken}`;
-        
-        // 3. Génération du QR Code
-        let qrCodeDataURL = '';
-        try {
-            qrCodeDataURL = await QRCode.toDataURL(publicUrl);
-        } catch (qrError) {
-            console.error("Erreur lors de la génération du QR Code:", qrError.message);
-            qrCodeDataURL = ''; 
-        }
-
-        // 4. Réponse
-        res.status(isNew ? 201 : 200).json({ 
-            form: form, 
-            publicUrl, 
-            qrCodeDataURL 
+        const form = await Form.create({
+            userId: req.user,
+            title,
+            token,
+            fields: [] // Nouveau formulaire vide
         });
+
+        res.status(201).json(form);
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Erreur lors de la sauvegarde du formulaire.' });
+        res.status(500).json({ message: 'Erreur lors de la création du formulaire.' });
     }
 });
 
 app.get('/api/forms', protect, async (req, res) => {
     try {
-        const forms = await Form.find({ userId: req.user }).select('title createdAt submissions');
-        res.json(forms.map(form => ({
-            _id: form._id,
-            title: form.title,
-            createdAt: form.createdAt,
-            submissions: form.submissions.length
-        })));
+        // Récupérer les formulaires de l'utilisateur actuel
+        const forms = await Form.find({ userId: req.user }).select('-submissions').sort({ createdAt: -1 });
+        res.json(forms);
     } catch (error) {
+        console.error(error);
         res.status(500).json({ message: 'Erreur lors de la récupération des formulaires.' });
     }
 });
 
-app.post('/api/forms/:id/logo', protect, async (req, res) => {
+app.get('/api/forms/:id', protect, async (req, res) => {
     try {
-        const form = await Form.findOne({ _id: req.params.id, userId: req.user });
-        if (!form) {
-            return res.status(404).json({ message: 'Formulaire non trouvé.' });
+        const form = await Form.findById(req.params.id).select('-submissions');
+        if (!form || form.userId.toString() !== req.user) {
+            return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
         }
-        
-        const { logoData } = req.body;
-        if (!logoData || !logoData.startsWith('data:image')) {
-            return res.status(400).json({ message: 'Format de données de logo invalide.' });
-        }
-
-        form.logoPath = logoData; 
-        await form.save();
-        
-        res.json({ message: 'Logo mis à jour avec succès.', logoPath: form.logoPath });
-
+        res.json(form);
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Erreur lors de l\'upload du logo.' });
-    }
-});
-
-// C. Routes Publiques (Soumission)
-app.get('/api/public/form/:token', async (req, res) => {
-    try {
-        // Le select doit maintenant inclure toutes les nouvelles propriétés
-        const form = await Form.findOne({ urlToken: req.params.token }).select('title fields logoPath urlToken views submissions');
-        if (!form) {
-            return res.status(404).json({ message: 'Formulaire non trouvé.' });
-        }
-        
-        form.views = (form.views || 0) + 1;
-        await form.save();
-        
-        // Renvoie tous les détails du champ (y compris required, options, fileConfig, conditionalLogic)
-        const publicForm = {
-            _id: form._id,
-            title: form.title,
-            fields: form.fields, 
-            logoPath: form.logoPath,
-        };
-
-        res.json(publicForm);
-    } catch (error) {
-        console.error("Erreur lors de l'accès au formulaire public:", error);
         res.status(500).json({ message: 'Erreur lors de la récupération du formulaire.' });
     }
 });
 
-app.post('/api/public/form/:token/submit', async (req, res) => {
+app.put('/api/forms/:id', protect, async (req, res) => {
     try {
-        // 🚨 NOTE IMPORTANTE : Si le formulaire contient un champ 'file', cette route JSON
-        // DEVRA ÊTRE MODIFIÉE pour accepter 'multipart/form-data' afin de gérer l'upload
-        // des fichiers au lieu de simples données JSON.
-        
-        const submissionData = req.body;
-        const form = await Form.findOne({ urlToken: req.params.token });
-        if (!form) {
-            return res.status(404).json({ message: 'Formulaire non trouvé.' });
+        const form = await Form.findById(req.params.id);
+
+        if (!form || form.userId.toString() !== req.user) {
+            return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
         }
 
-        // 🚨 Ici, si un champ est 'required' et que la donnée correspondante est manquante/vide,
-        // une validation backend serait idéale, mais nous nous reposons pour l'instant sur 
-        // la validation HTML5 du frontend.
+        // Mise à jour : le frontend envoie tout le corps du formulaire (fields, title, description, logoBase64)
+        const updatedForm = await Form.findByIdAndUpdate(
+            req.params.id, 
+            req.body, 
+            { new: true, runValidators: true } // 'new: true' retourne le doc mis à jour
+        ).select('-submissions');
 
-        form.submissions.push({ data: submissionData });
-        await form.save();
-        res.status(201).json({ message: 'Soumission enregistrée avec succès !' });
+        res.json(updatedForm);
     } catch (error) {
-        res.status(500).json({ message: 'Erreur lors de la soumission.' });
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de la mise à jour du formulaire.' });
     }
 });
 
-// D. Statistiques et Détails (Dashboard) (INCHANGÉES)
+app.delete('/api/forms/:id', protect, async (req, res) => {
+    try {
+        const form = await Form.findById(req.params.id);
+
+        if (!form || form.userId.toString() !== req.user) {
+            return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
+        }
+
+        await Form.findByIdAndDelete(req.params.id);
+        res.status(200).json({ message: 'Formulaire supprimé avec succès.' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de la suppression du formulaire.' });
+    }
+});
+
+
+// C. Formulaire Public (Rendu et Soumission)
+app.get('/api/public/form/:token', async (req, res) => {
+    try {
+        const form = await Form.findOne({ token: req.params.token }).select('-submissions');
+
+        if (!form || !form.isPublished) {
+            return res.status(404).json({ message: 'Formulaire non trouvé ou non publié.' });
+        }
+        
+        // 💡 Mettre à jour le compteur de vues (sans attendre)
+        Form.updateOne({ _id: form._id }, { $inc: { views: 1 } }).exec();
+
+        // Créer un objet de formulaire minimal pour le public
+        const publicForm = {
+            title: form.title,
+            description: form.description,
+            logoBase64: form.logoBase64,
+            fields: form.fields.map(field => ({
+                type: field.type,
+                label: field.label,
+                placeholder: field.placeholder,
+                required: field.required,
+                options: field.options,
+                conditionalLogic: field.conditionalLogic, // Inclure la logique conditionnelle
+                fileConfig: field.fileConfig,
+            })),
+            token: form.token
+        };
+
+        res.json(publicForm);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de la récupération du formulaire public.' });
+    }
+});
+
+app.post('/api/public/submit/:token', async (req, res) => {
+    const formData = req.body; 
+
+    if (Object.keys(formData).length === 0) {
+        return res.status(400).json({ message: 'La soumission est vide.' });
+    }
+
+    try {
+        const form = await Form.findOne({ token: req.params.token });
+
+        if (!form || !form.isPublished) {
+            return res.status(404).json({ message: 'Formulaire non trouvé ou non publié.' });
+        }
+
+        // 🚨 IMPORTANT: Validation des champs requis
+        const requiredFields = form.fields.filter(f => f.required);
+        for (const field of requiredFields) {
+            const fieldKey = field.label.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            if (formData[fieldKey] === undefined || formData[fieldKey] === null || formData[fieldKey] === '') {
+                // Pour une validation complète, il faudrait aussi vérifier la logique conditionnelle ici
+                return res.status(400).json({ message: `Le champ requis '${field.label}' est manquant.` });
+            }
+        }
+        
+        // Créer le nouvel objet de soumission
+        const newSubmission = {
+            data: formData,
+            submittedAt: new Date(),
+        };
+
+        // Ajouter la soumission et sauvegarder
+        form.submissions.push(newSubmission);
+        await form.save();
+
+        res.status(201).json({ message: 'Soumission enregistrée avec succès!', submissionId: newSubmission._id });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de la soumission du formulaire.' });
+    }
+});
+
+
+// D. Statistiques et Détails
 app.get('/api/forms/:id/stats', protect, async (req, res) => {
     try {
         const form = await Form.findById(req.params.id);
@@ -313,13 +351,21 @@ app.get('/api/forms/:id/stats', protect, async (req, res) => {
             return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
         }
 
+        // Récupérer les clés uniques de toutes les soumissions
+        const allKeys = form.submissions.reduce((keys, sub) => {
+            const dataKeys = sub.data ? Object.keys(sub.data) : [];
+            return [...new Set([...keys, ...dataKeys])];
+        }, []);
+
         const stats = {
+            _id: form._id, // Ajouter l'ID pour l'exportation
             title: form.title,
             views: form.views,
             submissionCount: form.submissions.length,
             conversionRate: form.views > 0 ? ((form.submissions.length / form.views) * 100).toFixed(2) : 0,
+            allSubmissionKeys: allKeys, // Inclure les clés uniques pour le frontend
             submissions: form.submissions.map(sub => ({
-                data: sub.data,
+                data: sub.data || {}, // Assurer un objet par défaut
                 submittedAt: sub.submittedAt,
             }))
         };
@@ -330,12 +376,73 @@ app.get('/api/forms/:id/stats', protect, async (req, res) => {
     }
 });
 
+// 💡 NOUVEAU : Endpoint pour l'export des données (CSV/Excel)
+app.get('/api/forms/:id/export', protect, async (req, res) => {
+    try {
+        const form = await Form.findById(req.params.id);
+        if (!form || form.userId.toString() !== req.user) {
+            return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
+        }
+        
+        const format = req.query.format; // 'csv' ou 'pdf'
+        const submissions = form.submissions.map(sub => sub.data || {});
+
+        if (submissions.length === 0) {
+            return res.status(404).json({ message: 'Aucune soumission à exporter.' });
+        }
+
+        // 1. Collecter toutes les clés uniques pour les en-têtes
+        const allKeys = submissions.reduce((keys, data) => {
+            return [...new Set([...keys, ...Object.keys(data)])];
+        }, []);
+        
+        // Nettoyer les en-têtes (remplacer les _ par des espaces et mettre en majuscule pour la lisibilité)
+        const headerRow = allKeys.map(key => `"${key.toUpperCase().replace(/_/g, ' ')}"`).join(';');
+
+
+        // 2. Préparer les données au format tabulaire (CSV)
+        const csvData = [
+            headerRow, // En-têtes
+            ...submissions.map(sub => allKeys.map(key => {
+                let value = sub[key] !== undefined ? sub[key] : '';
+                
+                // Gérer les valeurs multiples (par ex., checkbox group)
+                if (Array.isArray(value)) {
+                    value = value.join(', ');
+                }
+                
+                // Simple échappement pour les CSV (remplacer les doubles quotes par des doubles doubles quotes, et encadrer)
+                return `"${String(value).replace(/"/g, '""')}"`;
+            }).join(';')) // Utilisation du point-virgule comme séparateur pour la compatibilité Excel FR
+        ].join('\n');
+        
+        // 3. Envoyer le fichier
+        if (format === 'csv') { // Gère 'excel' via le frontend qui demande 'csv'
+             res.setHeader('Content-Type', 'text/csv');
+             res.setHeader('Content-Disposition', `attachment; filename="${form.title}_export_${new Date().toISOString().slice(0, 10)}.csv"`);
+             // Ajout du BOM (Byte Order Mark) pour l'encodage UTF-8 et la compatibilité Excel
+             return res.send(Buffer.from('\ufeff' + csvData, 'utf8')); 
+        } else if (format === 'pdf') {
+             // La génération de PDF est complexe. On simule un message d'erreur.
+             return res.status(501).json({ message: "La génération de PDF n'est pas encore supportée sur ce backend de démonstration. Veuillez utiliser l'export Excel (CSV)." });
+        }
+
+        return res.status(400).json({ message: 'Format d\'exportation non supporté.' });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de l\'exportation des données.' });
+    }
+});
+
 
 // E. ROUTE DE REDIRECTION PUBLIQUE (INCHANGÉE)
+// Intercepte les requêtes sur le domaine du backend et redirige vers le FRONTEND
 app.get('/form/:token', async (req, res) => {
     if (!FRONTEND_URL) {
         return res.status(500).send("Erreur de configuration : FRONTEND_URL non défini pour la redirection.");
     }
+    // Redirection permanente vers l'URL du frontend
     res.redirect(302, `${FRONTEND_URL}/form/${req.params.token}`);
 });
 
@@ -343,6 +450,6 @@ app.get('/form/:token', async (req, res) => {
 // --- 6. Démarrage du Serveur ---
 app.listen(PORT, () => {
     console.log(`Serveur démarré sur le port ${PORT}`);
-    console.log(`JWT SECRET: ${JWT_SECRET.substring(0, 5)}...`);
-    console.log(`MongoDB URI: ${MONGODB_URI ? MONGODB_URI.substring(0, 30) + '...' : 'NON DÉFINI'}`);
+    // Affichage des premières lettres des secrets pour vérifier qu'ils sont chargés
+    console.log(`JWT_SECRET chargé : ${JWT_SECRET.substring(0, 5)}...`);
 });
