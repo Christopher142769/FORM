@@ -1,4 +1,4 @@
-// client/src/App.js - V11 Ultra-Design + Theme Switch Global (FIX PUBLIC URL)
+// client/src/App.js - V11 Ultra-Design + Theme Switch Global (FIX PUBLIC URL) + REQUIRED FIELD + NAVBAR REFACTOR
 
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
@@ -186,7 +186,9 @@ const Auth = ({ onAuthSuccess, apiUrl, navigate }) => {
 // --- PARTIE 2 : CONSTRUCTEUR DE FORMULAIRE ---
 const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => {
     const [fieldLabel, setFieldLabel] = useState('');
-       const [fieldType, setFieldType] = useState('text');
+    const [fieldType, setFieldType] = useState('text');
+    // 💡 MODIFICATION : Nouvel état pour gérer l'obligation
+    const [fieldRequired, setFieldRequired] = useState(true); 
     const [logoFile, setLogoFile] = useState(null); 
     const [uploadError, setUploadError] = useState('');
 
@@ -194,9 +196,11 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
         if (fieldLabel.trim()) {
             setForm({
                 ...form,
-                fields: [...form.fields, { label: fieldLabel, type: fieldType }]
+                // 💡 MODIFICATION : Inclure l'état 'required' dans le nouveau champ
+                fields: [...form.fields, { label: fieldLabel, type: fieldType, required: fieldRequired }]
             });
             setFieldLabel('');
+            setFieldRequired(true); // Réinitialiser pour le champ suivant
         }
     };
 
@@ -304,7 +308,7 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                             </Form.Select>
                         </Form.Group>
                     </Col>
-                    <Col xs={12} md={6}>
+                    <Col xs={12} md={4}>
                         <Form.Group>
                             <Form.Label>Étiquette du Champ</Form.Label> 
                             <Form.Control 
@@ -316,7 +320,21 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                             />
                         </Form.Group>
                     </Col>
-                    <Col xs={12} md={2} className="d-grid">
+                    {/* 💡 MODIFICATION : Ajout du contrôle 'Obligatoire' */}
+                    <Col xs={6} md={2}>
+                        <Form.Group>
+                            <Form.Label>Obligatoire</Form.Label>
+                            <Form.Check 
+                                type="checkbox"
+                                label="Oui"
+                                checked={fieldRequired}
+                                onChange={(e) => setFieldRequired(e.target.checked)}
+                                className="custom-checkbox"
+                            />
+                        </Form.Group>
+                    </Col>
+                    
+                    <Col xs={6} md={2} className="d-grid">
                         <Button 
                             onClick={addField} 
                             variant="info" 
@@ -339,6 +357,10 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                             <div className="me-3">
                                 <span className="field-label-main">{field.label}</span>
                                 <span className="field-type-pill">{field.type}</span>
+                                {/* 💡 MODIFICATION : Afficher l'état 'Obligatoire' */}
+                                {field.required !== false && (
+                                    <span className="field-required-pill">Obligatoire</span>
+                                )}
                             </div>
                             <Button 
                                 variant="outline-danger" 
@@ -425,6 +447,7 @@ const Dashboard = ({ user, token, apiUrl }) => {
     const handleNewForm = () => {
         setIsNewForm(true);
         setSelectedForm(null);
+        // 💡 MODIFICATION : Initialiser `required: true` par défaut pour le constructeur (ou le laisser vide pour que le builder l'ajoute)
         setCurrentFormDetails({ title: '', fields: [], logoPath: '', publicUrl: '' }); 
         setQrCodeDataURL('');
         setCurrentView('builder');
@@ -455,17 +478,14 @@ const Dashboard = ({ user, token, apiUrl }) => {
 
             const savedForm = response.data.form;
 
-            // ⚠️ FIX ICI : construire l'URL publique côté FRONT
-            // On utilise le domaine actuel du frontend (startup-form.onrender.com)
-            // ⚠️ CONSTRUCTION DE L'URL PUBLIQUE CÔTÉ FRONT
-// Si on est en localhost → on force le domaine de production
-let frontendBaseUrl = window.location.origin;
+            // Construction de l'URL publique côté FRONT
+            let frontendBaseUrl = window.location.origin;
 
-if (frontendBaseUrl.includes('localhost')) {
-    frontendBaseUrl = 'https://startup-form.onrender.com'; // ⚠️ Remplace par ton domaine réel
-}
+            if (frontendBaseUrl.includes('localhost')) {
+                frontendBaseUrl = 'https://startup-form.onrender.com'; // ⚠️ Remplace par ton domaine réel
+            }
 
-const generatedPublicUrl = `${frontendBaseUrl}/form/${savedForm.urlToken}`;
+            const generatedPublicUrl = `${frontendBaseUrl}/form/${savedForm.urlToken}`;
 
 
             setSelectedForm(savedForm);
@@ -839,6 +859,8 @@ const PublicFormPage = ({ match, apiUrl }) => {
                     <form onSubmit={handleSubmit} className="pf-form">
                         {formDetails.fields.map((field, index) => {
                             const key = field.label.toLowerCase().replace(/\s/g, '_');
+                            // 💡 MODIFICATION : Récupérer l'état obligatoire, par défaut VRAI
+                            const isRequired = field.required !== false; 
 
                             if (field.type === 'checkbox') {
                                 return (
@@ -853,9 +875,13 @@ const PublicFormPage = ({ match, apiUrl }) => {
                                                 handleChange(key, e, 'checkbox')
                                             }
                                             className="pf-checkbox"
+                                            // 💡 MODIFICATION : Ajouter l'attribut required
+                                            required={isRequired}
                                         />
                                         <span className="pf-checkbox-label">
                                             {field.label}
+                                            {/* 💡 MODIFICATION : Afficher l'astérisque */}
+                                            {isRequired && <span className="pf-required">*</span>}
                                         </span>
                                     </label>
                                 );
@@ -865,7 +891,8 @@ const PublicFormPage = ({ match, apiUrl }) => {
                                 <div className="pf-field" key={index}>
                                     <label className="pf-label">
                                         {field.label}
-                                        <span className="pf-required">*</span>
+                                        {/* 💡 MODIFICATION : Afficher l'astérisque si obligatoire */}
+                                        {isRequired && <span className="pf-required">*</span>}
                                     </label>
 
                                     {field.type === 'textarea' ? (
@@ -875,7 +902,8 @@ const PublicFormPage = ({ match, apiUrl }) => {
                                             onChange={(e) =>
                                                 handleChange(key, e, 'text')
                                             }
-                                            required
+                                            // 💡 MODIFICATION : Ajouter l'attribut required
+                                            required={isRequired}
                                         />
                                     ) : (
                                         <input
@@ -891,7 +919,8 @@ const PublicFormPage = ({ match, apiUrl }) => {
                                             onChange={(e) =>
                                                 handleChange(key, e, 'text')
                                             }
-                                            required
+                                            // 💡 MODIFICATION : Ajouter l'attribut required
+                                            required={isRequired}
                                         />
                                     )}
                                 </div>
@@ -1046,10 +1075,11 @@ const App = () => {
                         <Navbar.Toggle aria-controls="basic-navbar-nav" />
                         <Navbar.Collapse id="basic-navbar-nav">
                             <Nav className="ms-auto align-items-center">
-                                <Navbar.Text className="me-3 navbar-welcome">
-                                    <span className="navbar-chip">Entreprise</span>
+                                {/* 💡 MODIFICATION : Disposition améliorée */}
+                                <div className="d-flex align-items-center me-3 navbar-welcome">
+                                    <span className="navbar-chip me-2">Entreprise</span>
                                     <span className="navbar-company">{user.companyName}</span>
-                                </Navbar.Text>
+                                </div>
                                 <Button 
                                     variant="outline-light" 
                                     onClick={() => handleLogout(true)} 
