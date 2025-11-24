@@ -1,6 +1,6 @@
-// client/src/App.js - V22 : Correction structure POST explicite
+// client/src/App.js - V23 FINAL : Affichage Logo/Details + Champs Date/Signature
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { 
@@ -8,6 +8,9 @@ import {
     Form, Alert, ListGroup, InputGroup, Spinner, Modal 
 } from 'react-bootstrap';
 import { QRCodeSVG } from 'qrcode.react'; 
+// 💡 NOUVEAU : Import de la librairie de signature
+import SignaturePad from 'react-signature-canvas';
+
 import './App.css';
 import './PublicForm.css';
 
@@ -15,13 +18,12 @@ import './PublicForm.css';
 const API_URL = 'https://form-backend-pl5d.onrender.com/api';
 const THEME_KEY = 'formgen-theme';
 
-// 💡 FONCTION UTILITAIRE : Génère un ID unique simple basé sur le temps et un nombre aléatoire
+// 💡 FONCTION UTILITAIRE : Génère un ID unique simple
 const generateUniqueId = () => new Date().getTime().toString(36) + Math.random().toString(36).substr(2);
 
 
-// --- SWITCH DE THÈME GLOBAL ---
+// --- SWITCH DE THÈME GLOBAL (Inchangé) ---
 const ThemeToggle = ({ theme, toggleTheme }) => {
-// ... (inchange)
     const isLight = theme === 'light';
     return (
         <button
@@ -39,9 +41,8 @@ const ThemeToggle = ({ theme, toggleTheme }) => {
     );
 };
 
-// --- LOADER CENTRÉ ---
+// --- LOADER CENTRÉ (Inchangé) ---
 const Loader = () => (
-// ... (inchange)
     <div className="loader-overlay">
         <div className="loader-card">
             <Spinner animation="border" role="status" className="spinner-border-custom">
@@ -52,19 +53,34 @@ const Loader = () => (
     </div>
 );
 
-// --- MODALE DE DÉTAILS DE SOUMISSION ---
-const SubmissionDetailsModal = ({ show, handleClose, submission, formTitle }) => {
-// ... (inchange)
-    if (!submission) return null;
+// --- MODALE DE DÉTAILS DE SOUMISSION (Modifié) ---
+const SubmissionDetailsModal = ({ show, handleClose, submission, formDetails }) => {
+    if (!submission || !formDetails) return null;
 
-    // Convertir les clés snake_case en titres lisibles
-    const formatKey = (key) => key.replace(/_/g, ' ').toUpperCase();
+    // 💡 MODIFICATION : Mapping des FieldId vers les Labels (pour une meilleure lisibilité)
+    const fieldMap = formDetails.fields.reduce((map, field) => {
+        map[field._id] = field.label;
+        return map;
+    }, {});
     
-    // Convertir l'objet de données en un tableau de paires clé-valeur
-    const dataEntries = submission.data.map(d => ({ 
-        key: d.fieldId, 
-        value: Array.isArray(d.value) ? d.value.join(', ') : d.value 
-    }));
+    // Conversion des données en un tableau de paires label-valeur
+    const dataEntries = submission.data.map(d => {
+        let displayValue = d.value;
+
+        if (Array.isArray(d.value)) {
+            displayValue = d.value.join(', ');
+        } else if (typeof d.value === 'boolean') {
+            displayValue = d.value ? 'Oui' : 'Non';
+        } else if (d.value && d.value.startsWith('data:image/png;base64,')) {
+             // 💡 Affichage de la signature/image en Base64
+            displayValue = `[Image/Signature] : ${d.value.substring(0, 50)}...`;
+        }
+        
+        return { 
+            label: fieldMap[d.fieldId] || d.fieldId, // Utilise le Label du champ si trouvé
+            value: displayValue
+        };
+    }).filter(entry => entry.value); // N'affiche que les champs qui ont une valeur
 
     return (
         <Modal show={show} onHide={handleClose} size="lg" centered>
@@ -73,14 +89,33 @@ const SubmissionDetailsModal = ({ show, handleClose, submission, formTitle }) =>
             </Modal.Header>
             <Modal.Body className="modal-body-details">
                 <p className="text-muted mb-3">
-                    **Formulaire :** {formTitle} | **Soumis le :** {new Date(submission.submittedAt).toLocaleString()}
+                    **Formulaire :** {formDetails.title} | **Soumis le :** {new Date(submission.submittedAt).toLocaleString()}
                 </p>
                 <ListGroup variant="flush">
                     {dataEntries.length > 0 ? (
                         dataEntries.map((entry, index) => (
-                            <ListGroup.Item key={index} className="d-flex justify-content-between details-item">
-                                <span className="details-key">{formatKey(entry.key)}</span>
-                                <span className="details-value">{entry.value.toString()}</span>
+                            <ListGroup.Item key={index} className="d-flex flex-column flex-md-row justify-content-between align-items-start details-item">
+                                <span className="details-key fw-bold me-3" style={{ minWidth: '150px' }}>
+                                    {entry.label} :
+                                </span>
+                                <span className="details-value text-break">
+                                    {/* 💡 Si c'est une image (signature/upload), on l'affiche */}
+                                    {entry.value.startsWith('[Image/Signature]') ? (
+                                        <>
+                                            {entry.value}
+                                            {/* Si la valeur commence par data:image/png;base64, c'est la signature/image */}
+                                            {submission.data.find(d => fieldMap[d.fieldId] === entry.label)?.value?.startsWith('data:image/') && (
+                                                <img 
+                                                    src={submission.data.find(d => fieldMap[d.fieldId] === entry.label)?.value}
+                                                    alt="Contenu de soumission"
+                                                    style={{ maxWidth: '100%', maxHeight: '200px', border: '1px solid #ccc', marginTop: '10px' }}
+                                                />
+                                            )}
+                                        </>
+                                    ) : (
+                                        entry.value.toString()
+                                    )}
+                                </span>
                             </ListGroup.Item>
                         ))
                     ) : (
@@ -99,9 +134,8 @@ const SubmissionDetailsModal = ({ show, handleClose, submission, formTitle }) =>
     );
 };
 
-// --- COMPOSANT D'ÉDITION DE LOGIQUE CONDITIONNELLE ---
+// --- COMPOSANT D'ÉDITION DE LOGIQUE CONDITIONNELLE (Inchangé) ---
 const ConditionalLogicEditor = ({ form, setForm }) => {
-// ... (inchange)
     // Filtrer les champs qui peuvent déclencher une logique (radio, select)
     const triggerFields = form.fields.filter(f => ['radio', 'select'].includes(f.type) && f.options && f.options.length > 0);
     
@@ -123,7 +157,6 @@ const ConditionalLogicEditor = ({ form, setForm }) => {
 
 
     const addLogic = () => {
-// ... (inchange)
         setError('');
         if (!selectedTriggerFieldLabel || !selectedValue || !selectedTargetFieldLabel) {
             setError("Veuillez sélectionner un champ déclencheur, une valeur d'option et un champ cible.");
@@ -168,7 +201,6 @@ const ConditionalLogicEditor = ({ form, setForm }) => {
     };
 
     const removeLogic = (triggerFieldLabel, value) => {
-// ... (inchange)
         const newFields = form.fields.map(field => {
             if (field.label === triggerFieldLabel) {
                 return {
@@ -184,7 +216,6 @@ const ConditionalLogicEditor = ({ form, setForm }) => {
     const currentTriggerField = form.fields.find(f => f.label === selectedTriggerFieldLabel);
 
     return (
-// ... (inchange)
         <Card className="mt-4 p-3 animated-card-small logic-card">
             <h5 className="mb-3">🔗 Logique Conditionnelle (Afficher si...)</h5>
             
@@ -272,9 +303,8 @@ const ConditionalLogicEditor = ({ form, setForm }) => {
 };
 
 
-// --- PAGE D'ACCUEIL (HYPER-IMMERSION) ---
+// --- PAGE D'ACCUEIL (HYPER-IMMERSION) (Inchangé) ---
 const WelcomePage = ({ navigate }) => (
-// ... (inchange)
     <div className="welcome-container">
         <div className="welcome-content">
             <div className="welcome-badge">Nouvelle Génération • SaaS Forms</div>
@@ -308,9 +338,8 @@ const WelcomePage = ({ navigate }) => (
     </div>
 );
 
-// --- PARTIE 1 : AUTHENTIFICATION ---
+// --- PARTIE 1 : AUTHENTIFICATION (Inchangé) ---
 const Auth = ({ onAuthSuccess, apiUrl, navigate }) => {
-// ... (inchange)
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -336,7 +365,6 @@ const Auth = ({ onAuthSuccess, apiUrl, navigate }) => {
     };
 
     return (
-// ... (inchange)
         <div className="auth-page-container">
             <div className="auth-page-gradient" />
             <Card className="shadow-lg p-4 mx-auto auth-card animated-card">
@@ -416,33 +444,29 @@ const Auth = ({ onAuthSuccess, apiUrl, navigate }) => {
     );
 };
 
-// --- PARTIE 2 : CONSTRUCTEUR DE FORMULAIRE ---
+// --- PARTIE 2 : CONSTRUCTEUR DE FORMULAIRE (Modifié) ---
 const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => {
-// ... (inchange)
     const [fieldLabel, setFieldLabel] = useState('');
-    const [fieldType, setFieldType] = useState('text');
+    // 💡 MODIF : Ajout des nouveaux types de champs
+    const [fieldType, setFieldType] = useState('text'); 
     const [fieldRequired, setFieldRequired] = useState(true); 
     const [logoFile, setLogoFile] = useState(null); 
     const [uploadError, setUploadError] = useState('');
     
-    // 💡 NOUVEAUX ÉTATS POUR LES OPTIONS ET FICHIERS
-    const [fieldOptions, setFieldOptions] = useState(''); // Options séparées par des virgules
+    // NOUVEAUX ÉTATS POUR LES OPTIONS ET FICHIERS
+    const [fieldOptions, setFieldOptions] = useState(''); 
     const [maxSizeMB, setMaxSizeMB] = useState(10); 
     const [allowedTypes, setAllowedTypes] = useState(['document']);
 
-    // 💡 NOUVEAU : État pour le statut de publication
     const isPublished = form.status === 'published';
 
     const addField = () => {
-// ... (inchange)
         if (fieldLabel.trim()) {
             let newField = { 
-                // 💡 CORRECTION CRITIQUE : Ajouter un ID unique pour satisfaire le FieldSchema de Mongoose
                 _id: generateUniqueId(), 
                 label: fieldLabel, 
                 type: fieldType, 
                 required: fieldRequired,
-                // Initialiser les nouvelles propriétés pour le stockage Mongoose
                 options: [],
                 fileConfig: {},
                 conditionalLogic: []
@@ -450,7 +474,6 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
 
             // Ajout des options pour les types basés sur un choix
             if (['radio', 'select', 'checkbox'].includes(fieldType)) {
-                // Convertit la chaîne d'options (séparées par des virgules) en tableau
                 const optionsArray = fieldOptions.split(',').map(opt => opt.trim()).filter(opt => opt.length > 0);
                 if (optionsArray.length === 0) {
                     alert("Veuillez entrer au moins une option pour ce type de champ.");
@@ -470,6 +493,8 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                     allowedTypes: allowedTypes
                 };
             }
+            // 💡 Signature et Date n'ont pas d'options/config supplémentaires
+            
 
             setForm({
                 ...form,
@@ -486,13 +511,11 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
     };
 
     const removeField = (index) => {
-// ... (inchange)
         const newFields = form.fields.filter((_, i) => i !== index);
         setForm({ ...form, fields: newFields });
     };
 
     const handleLogoChange = (e) => {
-// ... (inchange)
         const file = e.target.files[0];
         if (file) {
             const reader = new FileReader();
@@ -505,7 +528,6 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
     };
 
     const handleLogoUpload = async () => {
-// ... (inchange)
         if (!logoFile) { 
             setUploadError("Veuillez d'abord sélectionner un fichier.");
             return;
@@ -526,7 +548,7 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                     }
                 }
             );
-            // ⚠️ CORRECTION : Utiliser logoBase64 pour la cohérence
+            // CORRECTION : Utiliser logoBase64 pour la cohérence
             setForm({ ...form, logoBase64: response.data.logoPath }); 
             setLogoFile(null); 
             setUploadError('');
@@ -538,7 +560,6 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
     };
 
     return (
-// ... (inchange)
         <Card className="mb-4 animated-card builder-card">
             <Card.Header className="card-header-builder text-white">
                 <Row className="align-items-center g-2">
@@ -549,7 +570,7 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                         </div>
                     </Col>
                     <Col className="text-md-end mt-2 mt-md-0">
-                        {/* 💡 AJOUT : Bouton de statut de publication */}
+                        {/* Bouton de statut de publication */}
                         <div className="d-flex align-items-center justify-content-end">
                             <Form.Group className="me-3 mb-0">
                                 <Form.Check
@@ -612,13 +633,15 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                                 <option value="radio">Bouton Radio (Choix unique)</option>
                                 <option value="select">Liste Déroulante (Choix unique)</option>
                                 <option value="checkbox">Case(s) à cocher (Multiple)</option>
+                                <option value="date">Sélection de Date 📅</option>
+                                <option value="signature">Signature à la main ✍️</option>
                                 <option value="file">Upload de Fichier</option>
                             </Form.Select>
                         </Form.Group>
                     </Col>
                     <Col xs={12} md={4}>
                         <Form.Group>
-                            {/* 💡 MODIFICATION : Label du champ devient la Question/Titre */}
+                            {/* Label du champ devient la Question/Titre */}
                             <Form.Label>Question / Titre</Form.Label> 
                             <Form.Control 
                                 type="text" 
@@ -653,7 +676,7 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                         </Button>
                     </Col>
                     
-                    {/* 💡 NOUVEAU : Champ d'options pour les types de choix */}
+                    {/* Champ d'options pour les types de choix */}
                     {['radio', 'select', 'checkbox'].includes(fieldType) && (
                         <Col xs={12}>
                             <Form.Group>
@@ -669,7 +692,7 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                         </Col>
                     )}
                     
-                    {/* 💡 NOUVEAU : Configuration de l'upload pour le type 'file' */}
+                    {/* Configuration de l'upload pour le type 'file' */}
                     {fieldType === 'file' && (
                         <Row className="g-3 mt-1 px-0 mx-0">
                             <Col xs={12} md={3}>
@@ -721,7 +744,7 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                                         />
                                     </div>
                                     <small className="text-muted">
-                                        L'upload réel des fichiers nécessite une mise à jour du backend.
+                                        L'upload réel des fichiers sera stocké en Base64 dans la BDD.
                                     </small>
                                 </Form.Group>
                             </Col>
@@ -772,7 +795,7 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                     )}
                 </ListGroup>
 
-                {/* 💡 AJOUT : Éditeur de Logique Conditionnelle */}
+                {/* Éditeur de Logique Conditionnelle */}
                 <ConditionalLogicEditor form={form} setForm={setForm} />
 
                 {/* Upload de Logo */}
@@ -796,14 +819,16 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
                         </Button>
                     </InputGroup>
                     {uploadError && <Alert variant="warning" className="mt-2">{uploadError}</Alert>}
-                    {/* ⚠️ CORRECTION LOGO : Utilisation de la propriété logoBase64 pour l'aperçu */}
+                    {/* ⚠️ CORRECTION CRITIQUE LOGO : Ajout du préfixe data URI pour l'affichage */}
                     {form.logoBase64 && ( 
                         <p className="mt-2 text-success d-flex align-items-center flex-wrap gap-2">
                             <span>Logo actuel:</span> 
                             <img 
-                                src={`data:image/png;base64,${form.logoBase64}`} // ⬅️ AJOUT DU PRÉFIXE DATA URI
+                                // 💡 Modification: Le backend fournit la chaîne Base64 brute, on ajoute le préfixe
+                                src={`data:image/png;base64,${form.logoBase64.replace(/^data:image\/\w+;base64,/, '')}`} 
                                 alt="Logo Aperçu" 
                                 className="logo-preview"
+                                style={{ maxHeight: '50px' }}
                             />
                         </p>
                     )}
@@ -813,32 +838,31 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
     );
 };
 
-// --- PARTIE 3 : DASHBOARD ---
+// --- PARTIE 3 : DASHBOARD (Modifié) ---
 const Dashboard = ({ user, token, apiUrl }) => {
-// ... (inchange)
     const [forms, setForms] = useState([]);
     const [currentView, setCurrentView] = useState('list'); 
     const [selectedForm, setSelectedForm] = useState(null);
-    // 💡 MODIFICATION : Initialisation du statut
     const [currentFormDetails, setCurrentFormDetails] = useState({ 
         title: '', 
         fields: [], 
-        logoBase64: '', // ⬅️ CORRECTION
+        logoBase64: '', 
         publicUrl: '', 
-        status: 'draft' // Statut par défaut
+        status: 'draft' 
     }); 
     const [stats, setStats] = useState(null);
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
     const [qrCodeDataURL, setQrCodeDataURL] = useState('');
     const [isNewForm, setIsNewForm] = useState(true);
-    // 💡 NOUVEAUX ÉTATS POUR LA MODALE DE DÉTAILS
+    // NOUVEAUX ÉTATS POUR LA MODALE DE DÉTAILS
     const [showDetailsModal, setShowDetailsModal] = useState(false);
     const [selectedSubmission, setSelectedSubmission] = useState(null);
+    // 💡 Ajout pour stocker les détails du formulaire pour la modale
+    const [formForModal, setFormForModal] = useState(null);
 
 
     const fetchForms = useCallback(async () => {
-// ... (inchange)
         try {
             const response = await axios.get(`${apiUrl}/forms`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -855,26 +879,22 @@ const Dashboard = ({ user, token, apiUrl }) => {
     }, [fetchForms]);
 
     const handleNewForm = () => {
-// ... (inchange)
         setIsNewForm(true);
         setSelectedForm(null);
-        // 💡 MODIFICATION : Initialisation du statut
-        setCurrentFormDetails({ title: '', fields: [], logoBase64: '', publicUrl: '', status: 'draft' }); // ⬅️ CORRECTION
+        setCurrentFormDetails({ title: '', fields: [], logoBase64: '', publicUrl: '', status: 'draft' }); 
         setQrCodeDataURL('');
         setCurrentView('builder');
     };
 
     const handleEditForm = (form) => {
-// ... (inchange)
         setIsNewForm(false);
         setSelectedForm(form);
         const formToEdit = forms.find(f => f._id === form._id);
         
-        // 💡 MODIFICATION : Assurer que le statut est récupéré, par défaut 'draft'
         setCurrentFormDetails({ 
             ...formToEdit, 
             fields: formToEdit?.fields || [], 
-            status: formToEdit?.status || 'draft', // Récupère le statut ou met 'draft'
+            status: formToEdit?.status || 'draft', 
             publicUrl: '' 
         }); 
         
@@ -883,15 +903,13 @@ const Dashboard = ({ user, token, apiUrl }) => {
     };
 
     const handleSaveForm = async () => {
-// ... (inchange)
         setSuccessMessage('');
         setError('');
         try {
-            // 💡 MODIFICATION : ENVOI DU STATUT
             const dataToSave = { 
                 title: currentFormDetails.title, 
                 fields: currentFormDetails.fields,
-                status: currentFormDetails.status, // Envoi du statut 'draft' ou 'published'
+                status: currentFormDetails.status, 
                 ...(currentFormDetails._id && { _id: currentFormDetails._id }) 
             };
             
@@ -911,16 +929,14 @@ const Dashboard = ({ user, token, apiUrl }) => {
                 });
             }
 
-            const savedForm = response.data; // Le backend retourne le formulaire directement
+            const savedForm = response.data;
             
-            // Construction de l'URL publique côté FRONT
             let frontendBaseUrl = window.location.origin;
 
             if (frontendBaseUrl.includes('localhost')) {
-                frontendBaseUrl = 'https://startup-form.onrender.com'; // ⚠️ Remplace par ton domaine réel
+                frontendBaseUrl = 'https://startup-form.onrender.com'; 
             }
 
-            // 💡 Le token vient du champ 'token' dans le backend corrigé.
             const generatedPublicUrl = `${frontendBaseUrl}/form/${savedForm.token}`; 
 
             setSelectedForm(savedForm);
@@ -933,8 +949,8 @@ const Dashboard = ({ user, token, apiUrl }) => {
                 _id: savedForm._id, 
                 token: savedForm.token, 
                 publicUrl: generatedPublicUrl,
-                logoBase64: savedForm.logoBase64, // ⬅️ CORRECTION POUR LIRE LA PROPRIÉTÉ DU BACKEND
-                status: savedForm.status || 'draft' // Mise à jour du statut après la sauvegarde
+                logoBase64: savedForm.logoBase64, 
+                status: savedForm.status || 'draft' 
             }));
 
             fetchForms();
@@ -945,7 +961,6 @@ const Dashboard = ({ user, token, apiUrl }) => {
     };
 
     const handleViewStats = async (formId) => {
-// ... (inchange)
         setError('');
         try {
             const formDetailResponse = await axios.get(`${apiUrl}/forms/${formId}`, {
@@ -953,53 +968,65 @@ const Dashboard = ({ user, token, apiUrl }) => {
             });
             const formDetails = formDetailResponse.data;
 
-            // 💡 Le backend renvoie déjà toutes les soumissions et les champs
             const statsData = {
                 _id: formDetails._id,
                 title: formDetails.title,
-                submissions: formDetails.submissions, // Tableau des soumissions complet
+                submissions: formDetails.submissions, 
                 submissionCount: formDetails.submissions.length,
-                views: 0, // Vue non implémentée, laisser à 0 ou 1
+                views: 0, 
                 conversionRate: formDetails.submissions.length > 0 ? 100 : 0
             };
             
             setStats(statsData);
+            setFormForModal(formDetails); // Stocker les détails du formulaire pour la modale
             setCurrentView('stats');
         } catch (err) {
             setError('Erreur lors de la récupération des statistiques.');
         }
     };
     
-    // 💡 FONCTIONS DE GESTION DE MODALE
+    // FONCTIONS DE GESTION DE MODALE
     const handleShowDetails = (submission) => {
-// ... (inchange)
         setSelectedSubmission(submission);
         setShowDetailsModal(true);
     };
 
     const handleCloseDetails = () => {
-// ... (inchange)
         setShowDetailsModal(false);
         setSelectedSubmission(null);
     };
     
-    // 💡 FONCTION D'EXPORTATION (MISE À JOUR pour le backend CSV)
+    // FONCTION D'EXPORTATION (MISE À JOUR pour le backend CSV/PDF)
     const handleExport = async (format) => {
-// ... (inchange)
         setError('');
-        if (!stats) return; // Ne pas exporter si stats est null
+        if (!stats) return; 
 
         try {
             const formId = stats._id; 
             const queryFormat = format === 'excel' ? 'csv' : format; 
             const fileName = `${stats.title}_export_${new Date().toISOString().slice(0, 10)}.${queryFormat}`;
-
+            
             const response = await axios.get(`${apiUrl}/forms/${formId}/export?format=${queryFormat}`, {
                 headers: { Authorization: `Bearer ${token}` },
-                responseType: 'blob', // Important pour les fichiers
+                responseType: 'blob', 
             });
+            
+            // Si le backend renvoie un message d'erreur (format JSON) au lieu du blob (pour le PDF 501), on le gère
+            if (response.headers['content-type'] && response.headers['content-type'].includes('application/json')) {
+                 const reader = new FileReader();
+                 reader.onload = function() {
+                    try {
+                        const errorData = JSON.parse(reader.result);
+                        setError(errorData.message || `Erreur JSON lors de l'exportation vers ${format}.`);
+                    } catch (e) {
+                         setError(`Erreur lors de la lecture du message d'erreur pour ${format}.`);
+                    }
+                 }
+                 reader.readAsText(response.data);
+                 return;
+            }
 
-            // Créer un lien temporaire pour télécharger le fichier
+            // Créer un lien temporaire pour télécharger le fichier (pour CSV)
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
             link.href = url;
@@ -1011,19 +1038,18 @@ const Dashboard = ({ user, token, apiUrl }) => {
             alert(`Exportation réussie en format ${queryFormat.toUpperCase()}! Le téléchargement a commencé.`);
 
         } catch (err) {
+            // Cette erreur gère les codes HTTP 4xx/5xx qui ne sont pas gérés par le bloc ci-dessus
             setError(err.response?.data?.message || `Erreur lors de l'exportation vers ${format}. (Vérifiez le backend)`);
         }
     };
 
 
     const renderContent = () => {
-// ... (inchange)
         if (successMessage) {
             setTimeout(() => setSuccessMessage(''), 5000);
         }
         
         if (currentView === 'builder') {
-            // Le QR Code doit être généré dans le frontend si le backend ne le fait pas.
             const publicUrl = currentFormDetails.publicUrl || '';
             
             return (
@@ -1038,7 +1064,7 @@ const Dashboard = ({ user, token, apiUrl }) => {
                             <Row className="align-items-center justify-content-center g-3">
                                 <Col xs="auto">
                                     <div className="qr-wrapper">
-                                        {/* 💡 On utilise la librairie directement ici */}
+                                        {/* On utilise la librairie directement ici */}
                                         <QRCodeSVG value={publicUrl} size={128} level="H" includeMargin={true} />
                                     </div>
                                 </Col>
@@ -1061,7 +1087,6 @@ const Dashboard = ({ user, token, apiUrl }) => {
                                         variant="outline-primary" 
                                         className="mt-2 btn-qr-download" 
                                         onClick={() => {
-                                            // Utilise la fonction de la librairie pour obtenir la Data URL
                                             const svgElement = document.querySelector('.qr-wrapper svg');
                                             const canvas = document.createElement('canvas');
                                             canvas.width = 128;
@@ -1070,7 +1095,6 @@ const Dashboard = ({ user, token, apiUrl }) => {
                                             const img = new Image();
                                             const svgData = new XMLSerializer().serializeToString(svgElement);
                                             
-                                            // Ajout du code pour l'encodage SVG vers Canvas
                                             img.onload = function() {
                                                 ctx.drawImage(img, 0, 0);
                                                 const pngFile = canvas.toDataURL("image/png");
@@ -1103,13 +1127,10 @@ const Dashboard = ({ user, token, apiUrl }) => {
         }
 
         if (currentView === 'stats' && stats) {
-// ... (inchange)
             const hasSubmissions = stats.submissions && stats.submissions.length > 0;
             
-            // Collecter toutes les clés uniques de toutes les soumissions
             const submissionKeys = hasSubmissions 
                 ? stats.submissions.reduce((keys, sub) => {
-                    // Les soumissions stockées dans la BDD ne sont pas l'objet plat, mais un tableau
                     if (sub.data && Array.isArray(sub.data)) {
                         const currentKeys = sub.data.map(d => d.fieldId);
                          return [...new Set([...keys, ...currentKeys])];
@@ -1118,7 +1139,6 @@ const Dashboard = ({ user, token, apiUrl }) => {
                 }, [])
                 : [];
             
-            // REFACTORING : Le tableau de statistiques affiche désormais les détails dans la modale
             return (
                 <>
                 <Card className="mb-4 stats-card animated-card">
@@ -1127,7 +1147,7 @@ const Dashboard = ({ user, token, apiUrl }) => {
                             <h5 className="mb-0">📊 Statistiques</h5>
                             <small className="text-muted-light d-block">Formulaire : {stats.title}</small>
                         </div>
-                        {/* 💡 AJOUT : Boutons d'exportation */}
+                        {/* Boutons d'exportation */}
                         <div className="d-flex gap-2">
                              <Button variant="success" onClick={() => handleExport('excel')} size="sm">
                                 Export Excel
@@ -1145,7 +1165,7 @@ const Dashboard = ({ user, token, apiUrl }) => {
                             <Col md={4} xs={12} className="mb-3 mb-md-0">
                                 <Card className="p-3 stat-kpi">
                                     <span className="stat-label">Vues Totales</span>
-                                    {/* 💡 Vues non implémentées */}
+                                    {/* Vues non implémentées */}
                                     <h4>1</h4> 
                                 </Card>
                             </Col>
@@ -1158,7 +1178,7 @@ const Dashboard = ({ user, token, apiUrl }) => {
                             <Col md={4} xs={12}>
                                 <Card className="p-3 stat-kpi conversion-rate-card">
                                     <span className="stat-label">Taux de Conversion</span>
-                                     {/* 💡 Taux de conversion basé sur Soumissions / 1 Vue */}
+                                     {/* Taux de conversion basé sur Soumissions / 1 Vue */}
                                     <h4 className="text-primary-custom">{stats.conversionRate}%</h4>
                                 </Card>
                             </Col>
@@ -1180,7 +1200,7 @@ const Dashboard = ({ user, token, apiUrl }) => {
                                         <tr>
                                             <th>#</th>
                                             <th>Date</th>
-                                            {/* 💡 MODIFICATION : Une seule colonne pour les détails */}
+                                            {/* MODIFICATION : Une seule colonne pour les détails */}
                                             <th>Détails de la Soumission</th> 
                                         </tr>
                                     </thead>
@@ -1189,7 +1209,7 @@ const Dashboard = ({ user, token, apiUrl }) => {
                                             <tr key={index}>
                                                 <td>{index + 1}</td>
                                                 <td>{new Date(sub.submittedAt).toLocaleDateString()}</td>
-                                                {/* 💡 AJOUT : Bouton Voir Détails */}
+                                                {/* AJOUT : Bouton Voir Détails */}
                                                 <td>
                                                     <Button 
                                                         variant="outline-info" 
@@ -1207,12 +1227,12 @@ const Dashboard = ({ user, token, apiUrl }) => {
                         )}
                     </Card.Body>
                 </Card>
-                {/* 💡 AJOUT : La modale des détails */}
+                {/* 💡 MODIFICATION : Passage de formForModal aux détails */}
                 <SubmissionDetailsModal
                     show={showDetailsModal}
                     handleClose={handleCloseDetails}
                     submission={selectedSubmission}
-                    formTitle={stats.title}
+                    formDetails={formForModal}
                 />
                 </>
             );
@@ -1220,7 +1240,6 @@ const Dashboard = ({ user, token, apiUrl }) => {
 
         // Vue Liste des formulaires
         return (
-// ... (inchange)
             <Card className="animated-card list-card">
                 <Card.Header className="d-flex flex-column flex-md-row justify-content-between align-items-md-center card-header-list">
                     <div className="mb-2 mb-md-0">
@@ -1250,7 +1269,7 @@ const Dashboard = ({ user, token, apiUrl }) => {
                                         Créé le: {new Date(form.createdAt).toLocaleDateString()}
                                     </small>
                                     <small className="text-muted-light">
-                                        {/* 💡 Correction : Utilise .submissions.length car le backend ne l'exclut plus */}
+                                        {/* Correction : Utilise .submissions.length car le backend ne l'exclut plus */}
                                         {form.submissions ? form.submissions.length : 0} réponses enregistrées
                                     </small>
                                     <span className={`status-pill status-${form.status}`}>{form.status === 'published' ? 'PUBLIÉ' : 'BROUILLON'}</span>
@@ -1288,7 +1307,6 @@ const Dashboard = ({ user, token, apiUrl }) => {
     };
 
     return (
-// ... (inchange)
         <div className="dashboard-shell">
             <div className="dashboard-gradient" />
             <div className="dashboard">
@@ -1299,44 +1317,43 @@ const Dashboard = ({ user, token, apiUrl }) => {
     );
 };
 
-// --- PARTIE 4 : PAGE PUBLIQUE DE FORMULAIRE (NOUVEAU DESIGN ISOLÉ) ---
+// --- PARTIE 4 : PAGE PUBLIQUE DE FORMULAIRE (Modifié) ---
 const PublicFormPage = ({ match, apiUrl }) => {
-// ... (inchange)
     const [formDetails, setFormDetails] = useState(null);
     const [formData, setFormData] = useState({});
     const [loading, setLoading] = useState(true);
     const [submitStatus, setSubmitStatus] = useState({ message: '', variant: '' });
     const urlToken = match.params.token;
+    // 💡 Références pour la signature
+    const sigPad = useRef({});
 
     useEffect(() => {
         const fetchForm = async () => {
-// ... (inchange)
             try {
                 const response = await axios.get(`${apiUrl}/public/form/${urlToken}`);
                 setFormDetails(response.data);
 
                 // Initialisation des données de formulaire
                 const initialData = response.data.fields.reduce((acc, field) => {
-                    // Créer une clé unique pour le champ basée sur le label
                     const key = field.label.toLowerCase().replace(/[^a-z0-9]/g, '_'); 
                     
                     if (field.type === 'checkbox' && field.options && field.options.length > 0) {
-                        // Pour les groupes de cases à cocher multiples, initialiser chaque option à false
                         field.options.forEach(option => {
                             const optionKey = `${key}_${option.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
                             acc[optionKey] = false;
                         });
                     } else if (field.type === 'checkbox') {
-                         // Pour la case à cocher simple
                         acc[key] = false;
                     } else if (field.type === 'file') {
-                        // Pour l'upload, on stocke l'objet File
+                         // On stocke la Data URL du fichier
                         acc[key] = null;
+                    } else if (field.type === 'signature') {
+                         // On stocke la Data URL de la signature
+                        acc[key] = null; 
                     } else if (field.type === 'select') {
-                         // Pour les selects, on initialise à vide (pour afficher l'option disabled)
                         acc[key] = '';
                     } else {
-                        // Texte, email, number, radio
+                        // Texte, email, number, radio, date
                         acc[key] = '';
                     }
                     return acc;
@@ -1354,33 +1371,27 @@ const PublicFormPage = ({ match, apiUrl }) => {
         fetchForm();
     }, [urlToken, apiUrl]);
 
-    // 💡 LOGIQUE DE VISIBILITÉ (Check si le champ actuel est ciblé par une logique conditionnelle)
+    // LOGIQUE DE VISIBILITÉ (Inchangée)
     const isFieldVisible = useCallback((fieldToCheck) => {
-// ... (inchange)
-        // Crée l'ID cible (format snake_case)
         const fieldTargetId = fieldToCheck.label.toLowerCase().replace(/[^a-z0-9]/g, '_');
 
-        // 1. Trouver les champs (déclencheurs) qui ciblent ce champ
         const targetingFields = formDetails.fields.filter(f => 
             (f.conditionalLogic || []).some(logic => logic.showFieldId === fieldTargetId)
         );
 
         if (targetingFields.length === 0) {
-            return true; // Champ de base, toujours visible
+            return true; 
         }
 
-        // 2. Vérifier si au moins une condition est remplie
         return targetingFields.some(triggerField => {
             const triggerKey = triggerField.label.toLowerCase().replace(/[^a-z0-9]/g, '_');
             
             return (triggerField.conditionalLogic || []).some(logic => {
                 const requiredValue = logic.value;
                 
-                // Comparer la valeur actuelle dans formData avec la valeur requise
                 if (['radio', 'select'].includes(triggerField.type)) {
                     return formData[triggerKey] === requiredValue;
                 }
-                // Logique plus complexe pour les checkboxes si nécessaire, mais on se concentre sur radio/select
                 return false;
             });
         });
@@ -1389,14 +1400,27 @@ const PublicFormPage = ({ match, apiUrl }) => {
 
 
     const handleChange = (key, e, type) => {
-// ... (inchange)
         let value;
 
         if (type === 'checkbox') {
             value = e.target.checked;
         } else if (type === 'file') {
-            // Stocker le fichier sélectionné
-            value = e.target.files[0];
+             // 💡 Lecture du fichier et stockage de la Base64 (pour le backend)
+             const file = e.target.files[0];
+             if (file) {
+                 const reader = new FileReader();
+                 reader.onloadend = () => {
+                     setFormData(prev => ({ ...prev, [key]: reader.result }));
+                 };
+                 reader.readAsDataURL(file);
+                 return; // Retour immédiat car la mise à jour est asynchrone
+             }
+             value = null; // Si aucun fichier sélectionné
+
+        } else if (type === 'signature') {
+             // 💡 Géré par la fonction de soumission pour la référence (sigPad)
+             return; 
+
         } else {
             value = e.target.value;
         }
@@ -1408,7 +1432,6 @@ const PublicFormPage = ({ match, apiUrl }) => {
         e.preventDefault();
     
         if (!formDetails) {
-// ... (inchange)
             setSubmitStatus({
                 message: '❌ Formulaire introuvable.',
                 variant: 'error',
@@ -1420,37 +1443,35 @@ const PublicFormPage = ({ match, apiUrl }) => {
     
         const dataToSubmitArray = [];
         const missingRequiredLabels = [];
-        let hasFiles = false;
+        
+        // 💡 Booléen pour les fichiers (on ne bloque plus l'envoi, on envoie la Base64)
+        let hasFilesOrSignatures = false; 
     
-        formDetails.fields.forEach((field) => {
-            // 1️⃣ Champ masqué par la logique conditionnelle → on l’ignore totalement
+        for (const field of formDetails.fields) {
+            
             if (!isFieldVisible(field)) {
-                return;
+                continue;
             }
     
-            // 2️⃣ Sécurité : si le champ n’a pas d’_id, on ne l’envoie pas (sinon 400 côté backend)
-            // L'ID est critique pour le FieldSchema du backend
             if (!field._id) {
                 console.warn('Champ sans _id, ignoré :', field);
-                return;
+                continue;
             }
     
             const fieldKey = field.label.toLowerCase().replace(/[^a-z0-9]/g, '_');
             const isRequired = field.required !== false;
+            let value;
     
-            // 3️⃣ Checkbox multiple (avec options)
+            // 1️⃣ Checkbox multiple (avec options)
             if (field.type === 'checkbox' && field.options && field.options.length > 0) {
                 const checkedOptions = field.options.filter((option) => {
-                    const optionKey = `${fieldKey}_${option
-                        .toLowerCase()
-                        .replace(/[^a-z0-9]/g, '_')}`;
+                    const optionKey = `${fieldKey}_${option.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
                     return formData[optionKey] === true;
                 });
     
                 if (isRequired && checkedOptions.length === 0) {
-                    // Champ requis mais aucune case cochée → on bloque avant d’envoyer au backend
                     missingRequiredLabels.push(field.label);
-                    return;
+                    continue;
                 }
     
                 if (checkedOptions.length > 0) {
@@ -1459,81 +1480,103 @@ const PublicFormPage = ({ match, apiUrl }) => {
                         value: checkedOptions, // tableau de strings
                     });
                 }
-    
-                return; // on passe au champ suivant
+                continue; 
             }
 
-            // ⚠️ CORRECTION CRITIQUE 4️⃣ : Case à cocher simple (sans options)
+            // 2️⃣ Case à cocher simple
             if (field.type === 'checkbox' && (!field.options || field.options.length === 0)) {
                 const isChecked = formData[fieldKey] === true;
     
                 if (isRequired && !isChecked) {
                     missingRequiredLabels.push(field.label);
-                    return;
+                    continue;
                 }
                 
-                // On ajoute la soumission si elle est cochée (ou si elle est décochée mais pas requise)
                 dataToSubmitArray.push({
                     fieldId: String(field._id),
                     value: isChecked, // boolean
                 });
-                return;
+                continue;
             }
     
-            // 5️⃣ Fichiers
+            // 3️⃣ Fichiers (Upload)
             if (field.type === 'file') {
-                const file = formData[fieldKey];
+                value = formData[fieldKey]; // C'est la Base64
     
-                if (file) {
-                    hasFiles = true;
-                    // ⚠️ Backend pas prêt pour les fichiers → on bloque pour l’instant
-                } else if (isRequired) {
+                if (isRequired && !value) {
                     missingRequiredLabels.push(field.label);
+                    continue;
                 }
-    
-                return;
+                
+                if (value) {
+                    hasFilesOrSignatures = true;
+                    dataToSubmitArray.push({
+                        fieldId: String(field._id),
+                        value,
+                    });
+                }
+                continue;
             }
-    
-            // 6️⃣ Tous les autres types (text, email, number, radio, select)
+            
+            // 4️⃣ Signature
+            if (field.type === 'signature') {
+                 // Récupérer la signature du pad si elle est requise ou dessinée
+                const signaturePadRef = sigPad.current[field._id];
+                if (signaturePadRef && !signaturePadRef.isEmpty()) {
+                    value = signaturePadRef.toDataURL(); // Récupère l'image en Base64
+                    hasFilesOrSignatures = true;
+                } else if (signaturePadRef && signaturePadRef.isEmpty()) {
+                    value = null;
+                }
+
+                if (isRequired && !value) {
+                    missingRequiredLabels.push(field.label);
+                    continue;
+                }
+
+                if (value) {
+                     dataToSubmitArray.push({
+                        fieldId: String(field._id),
+                        value,
+                    });
+                }
+                continue;
+            }
+
+            // 5️⃣ Tous les autres types (text, email, number, radio, select, date)
             const rawValue = formData[fieldKey] ?? '';
-            const value =
+            value =
                 typeof rawValue === 'string' ? rawValue.trim() : rawValue;
     
             if (isRequired && (value === '' || value === null || value === undefined)) {
                 missingRequiredLabels.push(field.label);
-                return;
+                continue;
             }
     
-            // Si non requis et vide → on n’envoie rien (sauf pour les numéros, on envoie 0 s'il y a une valeur)
+            // Si non requis et vide → on n’envoie rien (sauf pour les numéros/dates)
             if ((value === '' || value === null || value === undefined) && value !== 0) {
-                return;
+                continue;
             }
     
             dataToSubmitArray.push({
                 fieldId: String(field._id),
                 value,
             });
-        });
+        }
     
-        // 7️⃣ Si des champs requis sont manquants → on n’envoie PAS la requête (évite le 400 backend)
+        // 6️⃣ Validation finale
         if (missingRequiredLabels.length > 0) {
-// ... (inchange)
             setSubmitStatus({
                 message:
                     '❌ Veuillez remplir tous les champs requis : ' +
                     missingRequiredLabels.join(', '),
                 variant: 'error',
             });
-            console.error(
-                'Champs requis manquants (frontend):',
-                missingRequiredLabels
-            );
+            console.error('Champs requis manquants (frontend):', missingRequiredLabels);
             return;
         }
     
-        // 8️⃣ Sécurité : on évite d’envoyer un tableau vide (backend peut renvoyer 400)
         if (dataToSubmitArray.length === 0) {
-// ... (inchange)
             setSubmitStatus({
                 message: '❌ Soumission invalide : le formulaire est vide.',
                 variant: 'error',
@@ -1541,23 +1584,13 @@ const PublicFormPage = ({ match, apiUrl }) => {
             return;
         }
     
-        if (hasFiles) {
-// ... (inchange)
-            setSubmitStatus({
-                message:
-                    '❌ Upload de fichiers non encore supporté par le backend.',
-                variant: 'error',
-            });
-            return;
-        }
-    
-        // 9️⃣ Structure de données correcte : ENVOI DIRECT DE L'OBJET { data: [...] }
+        // 7️⃣ ENVOI
         console.log('Payload ARRAY envoyé au backend :', dataToSubmitArray);
 
         try {
             const response = await axios.post(
                 `${apiUrl}/public/form/${urlToken}/submit`,
-                { data: dataToSubmitArray }, // ⬅️ CORRECTION CRITIQUE : Création explicite de l'objet de soumission
+                { data: dataToSubmitArray }, 
                 {
                     headers: {
                         'Content-Type': 'application/json',
@@ -1570,28 +1603,18 @@ const PublicFormPage = ({ match, apiUrl }) => {
                 variant: 'success',
             });
     
-            // Redirection éventuelle
-            if (response.data.redirect && response.data.redirectUrl) {
-// ... (inchange)
-                window.location.href = response.data.redirectUrl;
-                return;
-            }
-    
-            // Réinitialisation propre du formulaire après succès
+            // Réinitialisation après succès
             const resetData = formDetails.fields.reduce((acc, field) => {
-// ... (inchange)
                 const key = field.label.toLowerCase().replace(/[^a-z0-9]/g, '_');
     
                 if (field.type === 'checkbox' && field.options && field.options.length > 0) {
                     field.options.forEach((option) => {
-                        const optionKey = `${key}_${option
-                            .toLowerCase()
-                            .replace(/[^a-z0-9]/g, '_')}`;
+                        const optionKey = `${key}_${option.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
                         acc[optionKey] = false;
                     });
                 } else if (field.type === 'checkbox') {
                     acc[key] = false;
-                } else if (field.type === 'file') {
+                } else if (field.type === 'file' || field.type === 'signature') {
                     acc[key] = null;
                 } else if (field.type === 'select') {
                     acc[key] = '';
@@ -1603,12 +1626,18 @@ const PublicFormPage = ({ match, apiUrl }) => {
             }, {});
     
             setFormData(resetData);
+            // Réinitialiser les pads de signature
+            Object.values(sigPad.current).forEach(pad => pad && pad.clear()); 
+            
+            // Redirection éventuelle
+            if (response.data.redirect && response.data.redirectUrl) {
+                window.location.href = response.data.redirectUrl;
+                return;
+            }
+
+
         } catch (error) {
-// ... (inchange)
-            console.error(
-                'Erreur de soumission (détail backend) :',
-                error.response?.data || error
-            );
+            console.error('Erreur de soumission (détail backend) :', error.response?.data || error);
             setSubmitStatus({
                 message:
                     error.response?.data?.message ||
@@ -1621,7 +1650,6 @@ const PublicFormPage = ({ match, apiUrl }) => {
 
     // Loader simple
     if (loading) {
-// ... (inchange)
         return (
             <div className="pf-bg">
                 <div className="pf-loader">
@@ -1634,13 +1662,12 @@ const PublicFormPage = ({ match, apiUrl }) => {
 
     // Form introuvable
     if (!formDetails) {
-// ... (inchange)
         return (
             <div className="pf-bg">
                 <div className="pf-card pf-card--error">
                     <h2 className="pf-title">Oups…</h2>
                     <p className="pf-text">
-                        {submitStatus.message || 'Formulaire introuvable.'}
+                        {submitStatus.message || 'Formulaire non trouvé ou non publié.'}
                     </p>
                 </div>
             </div>
@@ -1649,7 +1676,6 @@ const PublicFormPage = ({ match, apiUrl }) => {
 
     // Fonction utilitaire pour générer l'attribut accept pour le champ file
     const getFileAccept = (allowedTypes) => {
-// ... (inchange)
         let accepts = [];
         if (allowedTypes.includes('image')) accepts.push('image/*');
         if (allowedTypes.includes('document')) accepts.push('.pdf,.doc,.docx,.xlsx,.xls,.txt');
@@ -1658,18 +1684,18 @@ const PublicFormPage = ({ match, apiUrl }) => {
     };
 
     return (
-// ... (inchange)
         <div className="pf-bg">
             <div className="pf-card">
                 {/* HEADER */}
                 <div className="pf-header">
-                    {/* ⚠️ CORRECTION LOGO : Utilisation de la propriété logoBase64 */}
+                    {/* ⚠️ CORRECTION CRITIQUE LOGO : Ajout du préfixe data URI pour l'affichage */}
                     {formDetails.logoBase64 && (
                         <div className="pf-logo-wrapper">
                             <img
-                                src={`data:image/png;base64,${formDetails.logoBase64}`} // ⬅️ AJOUT DU PRÉFIXE DATA URI
+                                src={`data:image/png;base64,${formDetails.logoBase64.replace(/^data:image\/\w+;base64,/, '')}`} 
                                 alt="Logo entreprise"
                                 className="pf-logo"
+                                style={{ maxHeight: '50px' }}
                             />
                         </div>
                     )}
@@ -1698,12 +1724,10 @@ const PublicFormPage = ({ match, apiUrl }) => {
 
                     <form onSubmit={handleSubmit} className="pf-form">
                         {formDetails.fields.map((field, index) => {
-                            // 💡 LOGIQUE DE MASQUAGE
                             if (!isFieldVisible(field)) {
                                 return null; 
                             }
                             
-                            // Clé unique pour le champ (label nettoyé)
                             const key = field.label.toLowerCase().replace(/[^a-z0-9]/g, '_'); 
                             const isRequired = field.required !== false; 
                             const fieldId = `field-${index}`;
@@ -1712,10 +1736,13 @@ const PublicFormPage = ({ match, apiUrl }) => {
 
                             switch (field.type) {
                                 case 'textarea':
-// ... (inchange)
+                                case 'email':
+                                case 'number':
+                                case 'text':
                                     inputElement = (
-                                        <textarea
-                                            className="pf-input pf-input--textarea"
+                                        <input
+                                            className="pf-input"
+                                            type={field.type === 'email' ? 'email' : field.type === 'number' ? 'number' : 'text'}
                                             value={formData[key] || ''}
                                             onChange={(e) => handleChange(key, e, 'text')}
                                             required={isRequired}
@@ -1723,18 +1750,70 @@ const PublicFormPage = ({ match, apiUrl }) => {
                                     );
                                     break;
                                     
-                                case 'file':
-                                    const acceptTypes = field.fileConfig ? getFileAccept(field.fileConfig.allowedTypes) : '*';
+                                case 'date':
+                                    // 💡 NOUVEAU : Champ date
                                     inputElement = (
                                         <input
-                                            type="file"
-                                            className="pf-input pf-input--file"
-                                            onChange={(e) => handleChange(key, e, 'file')}
+                                            className="pf-input"
+                                            type="date"
+                                            value={formData[key] || ''}
+                                            onChange={(e) => handleChange(key, e, 'text')}
                                             required={isRequired}
-                                            accept={acceptTypes}
                                         />
                                     );
                                     break;
+
+                                case 'file':
+                                    const acceptTypes = field.fileConfig ? getFileAccept(field.fileConfig.allowedTypes) : '*';
+                                    inputElement = (
+                                        <>
+                                            <input
+                                                type="file"
+                                                className="pf-input pf-input--file"
+                                                // La gestion des changements est asynchrone pour la Base64
+                                                onChange={(e) => handleChange(key, e, 'file')} 
+                                                required={isRequired && !formData[key]} // Requis seulement si pas déjà de data
+                                                accept={acceptTypes}
+                                            />
+                                            {/* 💡 Affichage du nom du fichier stocké (Base64) ou un indicateur */}
+                                            {formData[key] && (
+                                                <small className="text-success mt-1 d-block">
+                                                    ✅ Fichier sélectionné (Prêt pour l'envoi en Base64).
+                                                </small>
+                                            )}
+                                        </>
+                                    );
+                                    break;
+                                    
+                                case 'signature':
+                                    // 💡 NOUVEAU : Signature Pad
+                                    inputElement = (
+                                        <div className="pf-signature-pad-container">
+                                            <SignaturePad
+                                                ref={(ref) => sigPad.current[field._id] = ref}
+                                                canvasProps={{
+                                                    width: 400, 
+                                                    height: 200, 
+                                                    className: 'signature-pad-canvas'
+                                                }}
+                                                // Pas de onChange direct, la valeur est lue dans handleSubmit
+                                            />
+                                            <div className="pf-signature-actions">
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => sigPad.current[field._id].clear()}
+                                                    className="pf-signature-clear-btn"
+                                                >
+                                                    Effacer
+                                                </button>
+                                                {isRequired && !sigPad.current[field._id]?.isEmpty() && (
+                                                     <small className="text-success ms-2">Signature Capturée.</small>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                    break;
+
 
                                 case 'select':
                                     if (field.options && field.options.length > 0) {
@@ -1793,7 +1872,6 @@ const PublicFormPage = ({ match, apiUrl }) => {
                                                                 type="checkbox"
                                                                 checked={!!formData[optionKey]}
                                                                 onChange={(e) => handleChange(optionKey, e, 'checkbox')}
-                                                                // Le 'required' est complexe ici, on ne l'applique pas aux options individuelles
                                                             />
                                                             {option}
                                                         </label>
@@ -1802,7 +1880,7 @@ const PublicFormPage = ({ match, apiUrl }) => {
                                             </div>
                                         );
                                     } else {
-                                        // Case à cocher simple (si pas d'options) - comportement comme l'ancienne version
+                                        // Case à cocher simple
                                         inputElement = (
                                             <label className="pf-field pf-field--checkbox">
                                                 <input
@@ -1821,11 +1899,11 @@ const PublicFormPage = ({ match, apiUrl }) => {
                                     }
                                     break;
 
-                                default: // text, email, number
+                                default: 
                                     inputElement = (
                                         <input
                                             className="pf-input"
-                                            type={field.type === 'email' ? 'email' : field.type === 'number' ? 'number' : 'text'}
+                                            type={field.type}
                                             value={formData[key] || ''}
                                             onChange={(e) => handleChange(key, e, 'text')}
                                             required={isRequired}
@@ -1835,7 +1913,7 @@ const PublicFormPage = ({ match, apiUrl }) => {
 
                             return (
                                 <div className="pf-field" key={index} id={fieldId}>
-                                    {/* On affiche le label seulement si ce n'est pas une case à cocher simple */}
+                                    {/* On affiche le label seulement si ce n'est pas une case à cocher simple ou une signature */}
                                     {field.type !== 'checkbox' || (field.type === 'checkbox' && field.options && field.options.length > 0) ? (
                                         <label className="pf-label">
                                             {field.label}
@@ -1865,9 +1943,8 @@ const PublicFormPage = ({ match, apiUrl }) => {
 
 
 
-// --- PARTIE 5 : APP PRINCIPALE (INCHANGÉE) ---
+// --- PARTIE 5 : APP PRINCIPALE (Inchangé) ---
 const App = () => {
-// ... (inchange)
     const [user, setUser] = useState(null);
     const [token, setToken] = useState(localStorage.getItem('token') || null);
     const [loading, setLoading] = useState(true);
@@ -1907,7 +1984,7 @@ const App = () => {
                     const response = await axios.get(`${API_URL}/auth/me`, {
                         headers: { Authorization: `Bearer ${token}` }
                     });
-                    // 💡 NOTE : La structure de l'objet utilisateur est différente ici, mais c'est acceptable
+                    // NOTE : La structure de l'objet utilisateur est différente ici, mais c'est acceptable
                     setUser(response.data); 
                 } catch (error) {
                     console.error("Token non valide ou expiré.");
@@ -1936,13 +2013,11 @@ const App = () => {
     };
 
     if (loading) {
-// ... (inchange)
         return <Loader />;
     }
 
     const renderRoute = () => {
         if (path.startsWith('/form/')) {
-// ... (inchange)
             const tokenMatch = path.match(/\/form\/(.+)$/); 
             if (tokenMatch && tokenMatch[1]) {
                 return <PublicFormPage match={{ params: { token: tokenMatch[1] }} } apiUrl={API_URL} />;
@@ -1950,7 +2025,6 @@ const App = () => {
         }
         
         if (path === '/auth') {
-// ... (inchange)
             if (user) {
                 navigate('/dashboard');
                 return null;
@@ -1959,12 +2033,10 @@ const App = () => {
         }
 
         if (user && path === '/dashboard') {
-// ... (inchange)
             return <Dashboard user={user} token={token} apiUrl={API_URL} />;
         }
         
         if (path === '/') {
-// ... (inchange)
             if (user) {
                 navigate('/dashboard');
                 return null; 
@@ -1973,7 +2045,6 @@ const App = () => {
         }
 
         return (
-// ... (inchange)
             <div className="text-center mt-5 not-found-page">
                 <h2>404</h2>
                 <p>Page introuvable.</p>
@@ -1987,7 +2058,6 @@ const App = () => {
     const showNavbar = user && path === '/dashboard';
 
     return (
-// ... (inchange)
         <div className="app-shell">
             {/* Bouton de thème global */}
             <ThemeToggle theme={theme} toggleTheme={toggleTheme} />
@@ -2005,7 +2075,7 @@ const App = () => {
                         <Navbar.Toggle aria-controls="basic-navbar-nav" />
                         <Navbar.Collapse id="basic-navbar-nav">
                             <Nav className="ms-auto align-items-center">
-                                {/* 💡 MODIFICATION : Disposition améliorée */}
+                                {/* MODIFICATION : Disposition améliorée */}
                                 <div className="d-flex align-items-center me-3 navbar-welcome">
                                     <span className="navbar-chip me-2">Entreprise</span>
                                     <span className="navbar-company">{user.companyName}</span>
