@@ -1,4 +1,4 @@
-// server/server.js - BACKEND FINAL CORRIGÉ
+// server/server.js - BACKEND FINAL MODIFIÉ : PUBLICATION PAR DÉFAUT
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -70,7 +70,8 @@ const FormSchema = new mongoose.Schema({
     description: { type: String, default: '' },
     // Jeton public (UUID) - 💡 CRITIQUE: doit être unique
     token: { type: String, unique: true, required: true }, 
-    status: { type: String, enum: ['draft', 'published'], default: 'draft' },
+    // ⚠️ MODIFICATION DEMANDÉE : Statut par défaut à 'published'
+    status: { type: String, enum: ['draft', 'published'], default: 'published' },
     fields: [FieldSchema],
     submissions: [SubmissionSchema],
     logoBase64: { type: String, default: null }, // Champ pour le logo en Base64
@@ -242,7 +243,7 @@ app.post('/api/forms', protect, async (req, res) => {
             userId: req.user,
             title,
             token,
-            fields: [] // Nouveau formulaire vide
+            fields: [] // Nouveau formulaire vide. Le statut par défaut est maintenant 'published'
         });
 
         // Supprimer le champ 'submissions' pour l'affichage initial dans le dashboard
@@ -270,7 +271,7 @@ app.put('/api/forms/:id', protect, async (req, res) => {
             return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
         }
 
-        // Mettre à jour les champs (le logoBase64 et les submissions ne sont pas mis à jour ici)
+        // Mettre à jour les champs
         const updatedForm = await Form.findByIdAndUpdate(
             req.params.id, 
             { title, description, fields, status, settings }, 
@@ -338,14 +339,12 @@ app.post('/api/forms/:id/logo', protect, async (req, res) => {
 // B.5. ROUTE LISTE DES FORMULAIRES DE L'UTILISATEUR
 app.get('/api/forms', protect, async (req, res) => {
     try {
-        // 💡 CORRECTION MINEURE : Suppression du select('-submissions') pour permettre au frontend de compter les soumissions
-        // ATTENTION : cela envoie l'array submissions complet. Si vous avez des millions de soumissions, il faudra utiliser aggregation.
+        // La liste inclut les soumissions pour permettre le comptage dans le frontend
         const forms = await Form.find({ userId: req.user }).sort({ createdAt: -1 });
         
         // Mappage pour exclure les données massives et les tokens sensibles du résultat de la liste
         const sanitizedForms = forms.map(form => {
             const formObj = form.toObject();
-            // Le tableau submissions est maintenant présent et le frontend peut calculer sa longueur
             return formObj;
         });
 
