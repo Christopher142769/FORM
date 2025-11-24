@@ -1,4 +1,4 @@
-// server/server.js - TOUT LE BACKEND EN UN SEUL FICHIER (FINAL + ENV VARS V3) + REQUIRED FIELD
+// server/server.js - BACKEND FINAL (v2.0 : Nouvelle Structure de Champs + Logique Conditionnelle Initiale + Upload Config)
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -12,22 +12,16 @@ require('dotenv').config();
 const app = express();
 
 // --- Définition des Variables d'Environnement ---
-
-// Récupère l'URL du frontend pour la redirection et les liens publics.
-// 🚨 CORRECTION: Suppression du slash final dans la valeur par défaut pour éviter les conflits de routage.
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://startup-form.onrender.com"; 
-// Récupère le port ou utilise 5000 par défaut
 const PORT = process.env.PORT || 5000; 
-// Récupère la clé secrète JWT 
 const JWT_SECRET = process.env.JWT_SECRET || 'SECRET_PAR_DEFAUT_NE_PAS_UTILISER_EN_PROD'; 
 
 // --- 1. Middleware de base ---
+// Augmentation de la limite pour l'upload potentiel de logo (en base64) et de configurations complexes.
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); 
 
 // --- 2. Configuration MongoDB ---
-
-// Utilise process.env.MONGODB_URI
 const MONGODB_URI = process.env.MONGODB_URI; 
 
 if (!MONGODB_URI) {
@@ -48,14 +42,12 @@ const UserSchema = new mongoose.Schema({
     companyName: { type: String, required: true },
     createdAt: { type: Date, default: Date.now }
 });
-
 UserSchema.pre('save', async function(next) {
     if (this.isModified('password')) {
         this.password = await bcrypt.hash(this.password, 10);
     }
     next();
 });
-
 const User = mongoose.model('User', UserSchema);
 
 // Schéma pour le Formulaire
@@ -63,16 +55,48 @@ const FormSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     title: { type: String, required: true },
     fields: [{
+        // 💡 REFACTO : Le label est la Question/Titre
         label: { type: String, required: true },
-        type: { type: String, required: true, enum: ['text', 'textarea', 'email', 'number', 'checkbox'] },
-        // 💡 MODIFICATION : Ajout du champ 'required'
-        required: { type: Boolean, default: true } 
+        // 💡 MISE À JOUR : Ajout de nouveaux types de champs
+        type: { 
+            type: String, 
+            required: true, 
+            enum: ['text', 'textarea', 'email', 'number', 'checkbox', 'radio', 'select', 'file'] 
+        },
+        // 💡 Ajout du champ 'required'
+        required: { type: Boolean, default: true }, 
+
+        // 💡 NOUVEAU : Pour les types 'radio', 'select', 'checkbox' (multiple)
+        options: [String], 
+        
+        // 💡 NOUVEAU : Configuration pour le type 'file'
+        fileConfig: {
+            maxSizeMB: { type: Number, default: 10 }, // Limite de 10 Mo
+            // Types simplifiés pour la démo: image, document, ou autre
+            allowedTypes: [{ 
+                type: String, 
+                enum: ['image', 'document', 'other'], 
+                default: 'document' 
+            }]
+        },
+
+        // 💡 NOUVEAU : Configuration de la Logique Conditionnelle
+        conditionalLogic: {
+            type: [{
+                // La valeur de l'option qui déclenche (e.g., 'Oui')
+                value: String,
+                // L'ID/Token du prochain champ à afficher (correspond au field._id)
+                showFieldId: String 
+            }],
+            default: []
+        }
     }],
     logoPath: { type: String, default: '' }, 
     urlToken: { type: String, unique: true },
     views: { type: Number, default: 0 },
     submissions: [{
-        data: { type: mongoose.Schema.Types.Mixed },
+        // 🚨 IMPORTANT : Pour l'upload de fichiers, on stockerait ici l'URL du fichier uploadé.
+        data: { type: mongoose.Schema.Types.Mixed }, 
         submittedAt: { type: Date, default: Date.now }
     }],
     createdAt: { type: Date, default: Date.now }
@@ -80,6 +104,7 @@ const FormSchema = new mongoose.Schema({
 
 FormSchema.pre('save', async function(next) {
     if (this.isNew && !this.urlToken) {
+        // Utilisation de l'ID Mongoose comme token initial
         this.urlToken = this._id.toString(); 
     }
     next();
@@ -146,7 +171,7 @@ app.get('/api/auth/me', protect, async (req, res) => {
     }
 });
 
-// B. Gestion des Formulaires (Dashboard) (INCHANGÉ, mais gère implicitement le nouveau champ 'required')
+// B. Gestion des Formulaires (Dashboard)
 app.post('/api/forms', protect, async (req, res) => {
     try {
         const { _id, title, fields } = req.body;
@@ -157,28 +182,26 @@ app.post('/api/forms', protect, async (req, res) => {
             form = await Form.findOne({ _id, userId: req.user });
             if (!form) return res.status(404).json({ message: 'Formulaire non trouvé.' });
             form.title = title;
-            form.fields = fields; // Mongoose acceptera la nouvelle structure avec 'required'
+            form.fields = fields; // Mongoose acceptera la nouvelle structure de champs
         } else {
             isNew = true;
             form = new Form({ userId: req.user, title, fields });
         }
         
-        await form.save();
+        await form.save(); // Le .save() assure que le urlToken est généré si c'est un nouveau form
 
-        // 2. Génération du Lien Public utilisant la variable FRONTEND_URL
+        // 2. Génération du Lien Public
         if (!FRONTEND_URL) {
             return res.status(500).json({ message: "Erreur de configuration : FRONTEND_URL non défini." });
         }
-        // 💡 UTILISATION SANS SLASH: Assure la compatibilité
         let publicUrl = `${FRONTEND_URL}/form/${form.urlToken}`;
         
-        // 3. Génération du QR Code (AJOUT DU TRY/CATCH)
+        // 3. Génération du QR Code
         let qrCodeDataURL = '';
         try {
             qrCodeDataURL = await QRCode.toDataURL(publicUrl);
         } catch (qrError) {
             console.error("Erreur lors de la génération du QR Code:", qrError.message);
-            // On s'assure que qrCodeDataURL est une chaîne vide pour ne pas crasher le frontend
             qrCodeDataURL = ''; 
         }
 
@@ -231,10 +254,10 @@ app.post('/api/forms/:id/logo', protect, async (req, res) => {
     }
 });
 
-// C. Routes Publiques (Soumission) (INCHANGÉES)
+// C. Routes Publiques (Soumission)
 app.get('/api/public/form/:token', async (req, res) => {
     try {
-        // Sélectionne tous les champs nécessaires, y compris la nouvelle propriété 'required' dans 'fields'
+        // Le select doit maintenant inclure toutes les nouvelles propriétés
         const form = await Form.findOne({ urlToken: req.params.token }).select('title fields logoPath urlToken views submissions');
         if (!form) {
             return res.status(404).json({ message: 'Formulaire non trouvé.' });
@@ -243,11 +266,11 @@ app.get('/api/public/form/:token', async (req, res) => {
         form.views = (form.views || 0) + 1;
         await form.save();
         
-        // Renvoie uniquement les champs publics (qui incluent maintenant 'fields' avec 'required')
+        // Renvoie tous les détails du champ (y compris required, options, fileConfig, conditionalLogic)
         const publicForm = {
             _id: form._id,
             title: form.title,
-            fields: form.fields, // Contient la propriété 'required'
+            fields: form.fields, 
             logoPath: form.logoPath,
         };
 
@@ -260,15 +283,19 @@ app.get('/api/public/form/:token', async (req, res) => {
 
 app.post('/api/public/form/:token/submit', async (req, res) => {
     try {
+        // 🚨 NOTE IMPORTANTE : Si le formulaire contient un champ 'file', cette route JSON
+        // DEVRA ÊTRE MODIFIÉE pour accepter 'multipart/form-data' afin de gérer l'upload
+        // des fichiers au lieu de simples données JSON.
+        
         const submissionData = req.body;
         const form = await Form.findOne({ urlToken: req.params.token });
         if (!form) {
             return res.status(404).json({ message: 'Formulaire non trouvé.' });
         }
 
-        // NOTE: La validation des champs requis doit être gérée principalement par le frontend
-        // via l'attribut HTML 'required', mais une validation backend complète
-        // pourrait être ajoutée ici si nécessaire.
+        // 🚨 Ici, si un champ est 'required' et que la donnée correspondante est manquante/vide,
+        // une validation backend serait idéale, mais nous nous reposons pour l'instant sur 
+        // la validation HTML5 du frontend.
 
         form.submissions.push({ data: submissionData });
         await form.save();
@@ -304,14 +331,11 @@ app.get('/api/forms/:id/stats', protect, async (req, res) => {
 });
 
 
-// 🚨 CORRECTION CRITIQUE (Route E)
-// E. ROUTE DE REDIRECTION PUBLIQUE
-// Intercepte les requêtes sur le domaine du backend et redirige vers le FRONTEND
+// E. ROUTE DE REDIRECTION PUBLIQUE (INCHANGÉE)
 app.get('/form/:token', async (req, res) => {
     if (!FRONTEND_URL) {
         return res.status(500).send("Erreur de configuration : FRONTEND_URL non défini pour la redirection.");
     }
-    // Redirection permanente vers l'URL du frontend
     res.redirect(302, `${FRONTEND_URL}/form/${req.params.token}`);
 });
 
@@ -319,7 +343,6 @@ app.get('/form/:token', async (req, res) => {
 // --- 6. Démarrage du Serveur ---
 app.listen(PORT, () => {
     console.log(`Serveur démarré sur le port ${PORT}`);
-    // Affichage des premières lettres des secrets pour vérifier qu'ils sont chargés
     console.log(`JWT SECRET: ${JWT_SECRET.substring(0, 5)}...`);
     console.log(`MongoDB URI: ${MONGODB_URI ? MONGODB_URI.substring(0, 30) + '...' : 'NON DÉFINI'}`);
 });
