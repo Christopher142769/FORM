@@ -1,4 +1,4 @@
-// server/server.js - BACKEND FINAL MODIFIÉ : PUBLICATION PAR DÉFAUT & CORRECTION ROUTE SUBMISSION
+// server/server.js - BACKEND FINAL MODIFIÉ : LOGO, NOUVEAUX CHAMPS (DATE, SIGNATURE), EXPORT CSV
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -21,7 +21,7 @@ console.log(`JWT_SECRET chargé : ${JWT_SECRET.substring(0, 5)}...`);
 
 
 // --- 1. Middleware de base ---
-// Augmentation de la limite pour l'upload potentiel de logo (en base64) et de configurations complexes.
+// Augmentation CRITIQUE de la limite pour l'upload Base64 des fichiers et signatures.
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); 
 
@@ -42,16 +42,21 @@ mongoose.connect(MONGODB_URI)
 // Schéma pour un champ de formulaire (texte, nombre, choix, etc.)
 const FieldSchema = new mongoose.Schema({
     _id: { type: String, required: true }, // ID unique côté frontend pour la logique
-    type: { type: String, required: true },
+    // 💡 MODIF : Nouveaux types inclus: 'date', 'signature'
+    type: { type: String, required: true }, 
     label: { type: String, required: true },
     required: { type: Boolean, default: false },
     options: [String], // Pour les types 'select', 'radio', 'checkbox'
     placeholder: { type: String },
-    // Logique conditionnelle (ex: afficher si 'fieldId' a la valeur 'value')
-    conditional: {
-        fieldId: { type: String, default: null },
-        value: { type: String, default: null },
-    }
+    // Configuration pour l'upload de fichiers (maintenu)
+    fileConfig: {
+        maxSizeMB: { type: Number, default: 10 },
+        allowedTypes: [String],
+    },
+    conditionalLogic: [{
+        value: { type: String, required: true },
+        showFieldId: { type: String, required: true }
+    }]
 });
 
 // Schéma pour une soumission (une réponse au formulaire)
@@ -59,7 +64,8 @@ const SubmissionSchema = new mongoose.Schema({
     submittedAt: { type: Date, default: Date.now },
     data: [{
         fieldId: { type: String, required: true },
-        value: { type: mongoose.Schema.Types.Mixed, required: true } // Peut être String, Array, Number
+        // 💡 MODIF : Accepte des chaînes Base64 très longues pour fichiers/signatures
+        value: { type: String, required: true } 
     }]
 });
 
@@ -74,7 +80,8 @@ const FormSchema = new mongoose.Schema({
     status: { type: String, enum: ['draft', 'published'], default: 'published' },
     fields: [FieldSchema],
     submissions: [SubmissionSchema],
-    logoBase64: { type: String, default: null }, // Champ pour le logo en Base64
+    // 💡 MODIF : Augmente la taille pour le Base64 du logo (si jamais il est gros)
+    logoBase64: { type: String, default: null, max: 5242880 }, // 5MB max
     settings: {
         allowMultipleSubmissions: { type: Boolean, default: false },
         redirectUrl: { type: String, default: null },
@@ -93,7 +100,7 @@ const User = mongoose.model('User', UserSchema);
 const Form = mongoose.model('Form', FormSchema);
 
 
-// --- 4. Middleware d'Authentification ---
+// --- 4. Middleware d'Authentification (Inchangé) ---
 
 // Générer un token JWT
 const generateToken = (id, companyName) => {
@@ -132,7 +139,7 @@ const protect = async (req, res, next) => {
 
 // --- 5. Routes API ---
 
-// A. AUTHENTIFICATION
+// A. AUTHENTIFICATION (Inchangé)
 
 // Route Enregistrement
 app.post('/api/auth/register', async (req, res) => {
@@ -227,7 +234,7 @@ app.get('/api/auth/me', protect, async (req, res) => {
 
 // B. FORMULAIRES (ADMIN)
 
-// B.1. ROUTE CRÉATION DE FORMULAIRE
+// B.1. ROUTE CRÉATION DE FORMULAIRE (Inchangé)
 app.post('/api/forms', protect, async (req, res) => {
     const { title } = req.body;
 
@@ -260,7 +267,7 @@ app.post('/api/forms', protect, async (req, res) => {
     }
 });
 
-// B.2. ROUTE MISE À JOUR (SAUVEGARDE)
+// B.2. ROUTE MISE À JOUR (SAUVEGARDE) (Inchangé)
 app.put('/api/forms/:id', protect, async (req, res) => {
     const { title, description, fields, status, settings } = req.body;
 
@@ -285,7 +292,7 @@ app.put('/api/forms/:id', protect, async (req, res) => {
     }
 });
 
-// B.3. ROUTE SUPPRESSION
+// B.3. ROUTE SUPPRESSION (Inchangé)
 app.delete('/api/forms/:id', protect, async (req, res) => {
     try {
         const form = await Form.findById(req.params.id);
@@ -302,7 +309,7 @@ app.delete('/api/forms/:id', protect, async (req, res) => {
     }
 });
 
-// 💡 NOUVELLE ROUTE : B.4. ROUTE LOGO UPLOAD
+// 💡 NOUVELLE ROUTE : B.4. ROUTE LOGO UPLOAD (Inchangé)
 app.post('/api/forms/:id/logo', protect, async (req, res) => {
     const { logoData } = req.body; // logoData est la chaîne Base64 du frontend
 
@@ -336,7 +343,7 @@ app.post('/api/forms/:id/logo', protect, async (req, res) => {
     }
 });
 
-// B.5. ROUTE LISTE DES FORMULAIRES DE L'UTILISATEUR
+// B.5. ROUTE LISTE DES FORMULAIRES DE L'UTILISATEUR (Inchangé)
 app.get('/api/forms', protect, async (req, res) => {
     try {
         // La liste inclut les soumissions pour permettre le comptage dans le frontend
@@ -355,7 +362,7 @@ app.get('/api/forms', protect, async (req, res) => {
     }
 });
 
-// B.6. ROUTE DÉTAIL D'UN FORMULAIRE (POUR L'ÉDITION)
+// B.6. ROUTE DÉTAIL D'UN FORMULAIRE (POUR L'ÉDITION) (Inchangé)
 app.get('/api/forms/:id', protect, async (req, res) => {
     try {
         // Inclure les submissions pour l'affichage des résultats
@@ -372,7 +379,7 @@ app.get('/api/forms/:id', protect, async (req, res) => {
     }
 });
 
-// B.7. ROUTE STATISTIQUES SIMPLES (Nombre de soumissions)
+// B.7. ROUTE STATISTIQUES SIMPLES (Nombre de soumissions) (Inchangé)
 app.get('/api/forms/:id/stats', protect, async (req, res) => {
     try {
         const form = await Form.findById(req.params.id).select('submissions');
@@ -397,8 +404,7 @@ app.get('/api/forms/:id/stats', protect, async (req, res) => {
 });
 
 
-// B.8. ROUTE EXPORT DES DONNÉES (CSV)
-// Utilise un mécanisme simple pour générer un fichier CSV
+// B.8. ROUTE EXPORT DES DONNÉES (CSV/PDF) (Modifié)
 app.get('/api/forms/:id/export', protect, async (req, res) => {
     const { format } = req.query;
 
@@ -436,8 +442,12 @@ app.get('/api/forms/:id/export', protect, async (req, res) => {
                         value = value.join(', ');
                     }
                     
-                    // Nettoyage de la valeur (remplacer les sauts de ligne, guillemets, etc.) pour le CSV
-                    value = String(value).replace(/"/g, '""').replace(/\n/g, ' ').replace(/;/g, ',');
+                    // Nettoyage de la valeur (remplacer les sauts de ligne, guillemets, Base64 pour le CSV)
+                    value = String(value);
+                    if (value.startsWith('data:image/')) {
+                         value = '[IMAGE/SIGNATURE EN BASE64]';
+                    }
+                    value = value.replace(/"/g, '""').replace(/\n/g, ' ').replace(/;/g, ',');
                     row.push(value);
                  });
 
@@ -450,8 +460,8 @@ app.get('/api/forms/:id/export', protect, async (req, res) => {
              // Ajout du BOM (Byte Order Mark) pour l'encodage UTF-8 et la compatibilité Excel
              return res.send(Buffer.from('\ufeff' + csvData, 'utf8')); 
         } else if (format === 'pdf') {
-             // La génération de PDF est complexe. On simule un message d'erreur.
-             return res.status(501).json({ message: "La génération de PDF n'est pas encore supportée sur ce backend de démonstration. Veuillez utiliser l'export Excel (CSV)." });
+             // 💡 MODIF : Message d'erreur clair pour le PDF
+             return res.status(501).json({ message: "La génération de PDF n'est pas supportée dans ce backend de démonstration. Veuillez utiliser l'export Excel (CSV)." });
         }
 
         return res.status(400).json({ message: 'Format d\'exportation non supporté.' });
@@ -465,7 +475,7 @@ app.get('/api/forms/:id/export', protect, async (req, res) => {
 
 // C. FORMULAIRE (PUBLIC)
 
-// C.1. ROUTE RÉCUPÉRATION (SANS AUTH)
+// C.1. ROUTE RÉCUPÉRATION (SANS AUTH) (Inchangé)
 app.get('/api/public/form/:token', async (req, res) => {
     try {
         // Seuls les formulaires publiés sont accessibles publiquement
@@ -488,13 +498,13 @@ app.get('/api/public/form/:token', async (req, res) => {
     }
 });
 
-// C.2. ROUTE SOUMISSION (SANS AUTH)
-// Version tolérante + logs de debug
+// C.2. ROUTE SOUMISSION (SANS AUTH) (Inchangé)
 app.post('/api/public/form/:token/submit', async (req, res) => { 
     
     console.log('--- Nouvelle soumission reçue ---');
     console.log('Headers content-type :', req.headers['content-type']);
-    console.log('Corps brut reçu :', req.body);
+    // Le corps peut être très long (Base64), on logue juste le début
+    console.log('Corps brut reçu (début) :', JSON.stringify(req.body).substring(0, 100) + '...');
 
     if (!req.body) {
         return res.status(400).json({
@@ -516,7 +526,7 @@ app.post('/api/public/form/:token/submit', async (req, res) => {
         }
     }
 
-    console.log('Données interprétées côté backend :', data);
+    console.log('Données interprétées côté backend (longueur) :', Array.isArray(data) ? data.length : 'undefined');
     console.log('Array.isArray(data) =', Array.isArray(data));
 
     if (!data || !Array.isArray(data) || data.length === 0) {
@@ -568,7 +578,7 @@ app.get('/form/:token', async (req, res) => {
 });
 
 
-// --- 6. Démarrage du Serveur ---
+// --- 6. Démarrage du Serveur (Inchangé) ---
 app.listen(PORT, () => {
     console.log(`Serveur démarré sur le port ${PORT}`);
 });
