@@ -325,8 +325,6 @@ app.post('/api/forms/:id/logo', protect, async (req, res) => {
         ).select('-submissions');
 
         // Retourner le chemin du logo (qui est la donnée Base64 elle-même)
-        // NOTE: La propriété retournée ici est 'logoPath' (pour la compatibilité)
-        // MAIS le frontend doit lire 'logoBase64' dans la récupération publique.
         res.json({ 
             message: 'Logo mis à jour avec succès.',
             logoPath: updatedForm.logoBase64 
@@ -493,6 +491,12 @@ app.get('/api/public/form/:token', async (req, res) => {
 // C.2. ROUTE SOUMISSION (SANS AUTH)
 // ⚠️ CORRECTION CRITIQUE : Alignement de l'URL sur ce que le frontend envoie (/api/public/form/:token/submit)
 app.post('/api/public/form/:token/submit', async (req, res) => { 
+    
+    // ⚠️ CORRECTION : AJOUT DE LA VÉRIFICATION DU CORPS DE REQUÊTE
+    if (!req.body) {
+         return res.status(400).json({ message: 'Corps de requête manquant. Assurez-vous que le content-type est application/json.' });
+    }
+    
     const { data } = req.body; // 'data' est un tableau d'objets { fieldId, value }
 
     if (!data || !Array.isArray(data)) {
