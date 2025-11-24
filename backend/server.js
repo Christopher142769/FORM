@@ -1,4 +1,4 @@
-// server/server.js - BACKEND FINAL (v2.1 : Exportation CSV/Excel + Logique Conditionnelle Schema)
+// server/server.js - BACKEND FINAL (v2.2 : Correction de la Route /api/auth/me)
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -176,6 +176,21 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
+// 💡 NOUVELLE ROUTE : Vérifie le jeton et retourne l'utilisateur
+app.get('/api/auth/me', protect, async (req, res) => {
+    try {
+        // req.user contient l'ID utilisateur décodé par le middleware 'protect'
+        const user = await User.findById(req.user).select('-password'); 
+        if (!user) {
+            return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+        }
+        res.json({ user }); 
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de la récupération des informations utilisateur.' });
+    }
+});
+
 // B. Gestion des Formulaires (CRUD)
 app.post('/api/forms', protect, async (req, res) => {
     const { title } = req.body;
@@ -208,7 +223,6 @@ app.get('/api/forms', protect, async (req, res) => {
         const forms = await Form.find({ userId: req.user }).select('-submissions').sort({ createdAt: -1 });
         res.json(forms);
     } catch (error) {
-        console.error(error);
         res.status(500).json({ message: 'Erreur lors de la récupération des formulaires.' });
     }
 });
@@ -376,7 +390,7 @@ app.get('/api/forms/:id/stats', protect, async (req, res) => {
     }
 });
 
-// 💡 NOUVEAU : Endpoint pour l'export des données (CSV/Excel)
+// 💡 Endpoint pour l'export des données (CSV/Excel)
 app.get('/api/forms/:id/export', protect, async (req, res) => {
     try {
         const form = await Form.findById(req.params.id);
