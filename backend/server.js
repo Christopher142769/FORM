@@ -489,18 +489,41 @@ app.get('/api/public/form/:token', async (req, res) => {
 });
 
 // C.2. ROUTE SOUMISSION (SANS AUTH)
-// ⚠️ CORRECTION CRITIQUE : Alignement de l'URL sur ce que le frontend envoie (/api/public/form/:token/submit)
+// Version tolérante + logs de debug
 app.post('/api/public/form/:token/submit', async (req, res) => { 
     
-    // ⚠️ CORRECTION : AJOUT DE LA VÉRIFICATION DU CORPS DE REQUÊTE
-    if (!req.body) {
-         return res.status(400).json({ message: 'Corps de requête manquant. Assurez-vous que le content-type est application/json.' });
-    }
-    
-    const { data } = req.body; // 'data' est un tableau d'objets { fieldId, value }
+    console.log('--- Nouvelle soumission reçue ---');
+    console.log('Headers content-type :', req.headers['content-type']);
+    console.log('Corps brut reçu :', req.body);
 
-    if (!data || !Array.isArray(data)) {
-        return res.status(400).json({ message: 'Les données de soumission sont manquantes ou invalides.' });
+    if (!req.body) {
+        return res.status(400).json({
+            message: 'Corps de requête manquant. Assurez-vous que le content-type est application/json.',
+        });
+    }
+
+    // On essaie de récupérer un tableau de données, peu importe la forme exacte
+    let data = req.body.data;
+
+    if (!Array.isArray(data)) {
+        // Cas 1 : le front envoie directement un tableau en racine
+        if (Array.isArray(req.body)) {
+            data = req.body;
+        }
+        // Cas 2 : le front envoie un seul objet { fieldId, value }
+        else if (req.body.fieldId && req.body.value !== undefined) {
+            data = [req.body];
+        }
+    }
+
+    console.log('Données interprétées côté backend :', data);
+    console.log('Array.isArray(data) =', Array.isArray(data));
+
+    if (!data || !Array.isArray(data) || data.length === 0) {
+        return res.status(400).json({
+            message: 'Les données de soumission sont manquantes ou invalides.',
+            debugBody: req.body,
+        });
     }
 
     try {
@@ -528,7 +551,7 @@ app.post('/api/public/form/:token/submit', async (req, res) => {
         res.json({ message: 'Soumission réussie', success: true, redirect: false });
 
     } catch (error) {
-        console.error(error);
+        console.error('Erreur lors de la soumission du formulaire :', error);
         res.status(500).json({ message: 'Erreur lors de la soumission du formulaire.' });
     }
 });
