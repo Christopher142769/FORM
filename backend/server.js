@@ -1,4 +1,4 @@
-// server/server.js - BACKEND FINAL MODIFIÉ : LOGO, NOUVEAUX CHAMPS (DATE, SIGNATURE), EXPORT CSV
+// server/server.js - BACKEND FINAL MODIFIÉ : CORRECTION SCHÉMA SUBMISSION (value: [String])
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -64,8 +64,10 @@ const SubmissionSchema = new mongoose.Schema({
     submittedAt: { type: Date, default: Date.now },
     data: [{
         fieldId: { type: String, required: true },
-        // 💡 MODIF : Accepte des chaînes Base64 très longues pour fichiers/signatures
-        value: { type: String, required: true } 
+        // 💡 CORRECTION CRITIQUE : Définit la valeur comme un tableau de String.
+        // Gère les tableaux de choix (checkboxes multiples), mais accepte aussi
+        // une chaîne unique qui est auto-convertie en tableau [chaine].
+        value: { type: [String], required: true } 
     }]
 });
 
@@ -404,7 +406,7 @@ app.get('/api/forms/:id/stats', protect, async (req, res) => {
 });
 
 
-// B.8. ROUTE EXPORT DES DONNÉES (CSV/PDF) (Modifié)
+// B.8. ROUTE EXPORT DES DONNÉES (CSV/PDF) (Inchangé)
 app.get('/api/forms/:id/export', protect, async (req, res) => {
     const { format } = req.query;
 
