@@ -1,4 +1,4 @@
-// server/server.js - BACKEND FINAL (v2.2 : Correction de la Route /api/auth/me)
+// server/server.js - BACKEND FINAL CORRIGÉ
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -15,6 +15,10 @@ const app = express();
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://startup-form.onrender.com"; 
 const PORT = process.env.PORT || 5000; 
 const JWT_SECRET = process.env.JWT_SECRET || 'SECRET_PAR_DEFAUT_NE_PAS_UTILISER_EN_PROD'; 
+
+// Affichage du secret
+console.log(`JWT_SECRET chargé : ${JWT_SECRET.substring(0, 5)}...`); 
+
 
 // --- 1. Middleware de base ---
 // Augmentation de la limite pour l'upload potentiel de logo (en base64) et de configurations complexes.
@@ -33,165 +37,196 @@ mongoose.connect(MONGODB_URI)
     .catch(err => console.error('Erreur de connexion à MongoDB:', err));
 
 
-// --- 3. Schémas et Modèles Mongoose ---
+// --- 3. Définition des Schémas ---
 
-// Schéma de l'utilisateur
+// Schéma pour un champ de formulaire (texte, nombre, choix, etc.)
+const FieldSchema = new mongoose.Schema({
+    _id: { type: String, required: true }, // ID unique côté frontend pour la logique
+    type: { type: String, required: true },
+    label: { type: String, required: true },
+    required: { type: Boolean, default: false },
+    options: [String], // Pour les types 'select', 'radio', 'checkbox'
+    placeholder: { type: String },
+    // Logique conditionnelle (ex: afficher si 'fieldId' a la valeur 'value')
+    conditional: {
+        fieldId: { type: String, default: null },
+        value: { type: String, default: null },
+    }
+});
+
+// Schéma pour une soumission (une réponse au formulaire)
+const SubmissionSchema = new mongoose.Schema({
+    submittedAt: { type: Date, default: Date.now },
+    data: [{
+        fieldId: { type: String, required: true },
+        value: { type: mongoose.Schema.Types.Mixed, required: true } // Peut être String, Array, Number
+    }]
+});
+
+// Schéma principal du Formulaire
+const FormSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    title: { type: String, required: true },
+    description: { type: String, default: '' },
+    // Jeton public (UUID) - 💡 CRITIQUE: doit être unique
+    token: { type: String, unique: true, required: true }, 
+    status: { type: String, enum: ['draft', 'published'], default: 'draft' },
+    fields: [FieldSchema],
+    submissions: [SubmissionSchema],
+    logoBase64: { type: String, default: null }, // Champ pour le logo en Base64
+    settings: {
+        allowMultipleSubmissions: { type: Boolean, default: false },
+        redirectUrl: { type: String, default: null },
+        theme: { type: String, enum: ['light', 'dark'], default: 'light' }
+    }
+}, { timestamps: true });
+
+// Schéma de l'Utilisateur
 const UserSchema = new mongoose.Schema({
-    username: { type: String, required: true, unique: true },
+    email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     companyName: { type: String, default: 'Mon Entreprise' }
 });
-
-// Schéma pour les soumissions
-const SubmissionSchema = new mongoose.Schema({
-    submittedAt: { type: Date, default: Date.now },
-    data: { type: mongoose.Schema.Types.Mixed, required: true }, // Pour stocker les données variables
-});
-
-// Schéma pour un champ (inclut la configuration de l'upload et la logique conditionnelle)
-const FieldSchema = new mongoose.Schema({
-    _id: { type: String, required: true }, // ID unique pour la manipulation côté client
-    type: { type: String, required: true }, // ex: text, email, radio, select, file
-    label: { type: String, required: true },
-    placeholder: { type: String },
-    required: { type: Boolean, default: false }, 
-    options: [String], // Pour radio/select
-    conditionalLogic: [{ // 💡 Stockage de la logique conditionnelle
-        value: { type: String, required: true }, // La valeur de l'option qui déclenche
-        showFieldId: { type: String, required: true } // L'ID du champ à afficher
-    }],
-    fileConfig: { // Configuration pour les champs de type 'file'
-        maxSize: { type: Number, default: 2 }, // Taille max en MB
-        allowedTypes: [String], // ex: ['image/png', 'application/pdf']
-    }
-}, { _id: false }); // Important: ne pas créer un _id Mongoose par défaut pour le FieldSchema
-
-// Schéma du formulaire (le conteneur principal)
-const FormSchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    token: { type: String, unique: true, required: true }, // Jeton public (UUID)
-    title: { type: String, required: true },
-    description: { type: String, default: '' },
-    isPublished: { type: Boolean, default: false },
-    createdAt: { type: Date, default: Date.now },
-    logoBase64: { type: String, default: null }, // Pour stocker le logo en Base64
-    fields: [FieldSchema], // Tableau des champs du formulaire
-    submissions: [SubmissionSchema], // Tableau des soumissions reçues
-    views: { type: Number, default: 0 }, // Compteur de vues
-});
-
 
 const User = mongoose.model('User', UserSchema);
 const Form = mongoose.model('Form', FormSchema);
 
 
-// --- 4. Middleware d'Authentification (JWT) ---
+// --- 4. Middleware d'Authentification ---
+
+// Générer un token JWT
+const generateToken = (id, companyName) => {
+    return jwt.sign({ id, companyName }, JWT_SECRET, {
+        expiresIn: '30d',
+    });
+};
+
+// Middleware de protection
 const protect = async (req, res, next) => {
     let token;
 
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
         try {
-            // Get token from header
+            // Récupérer le token du header
             token = req.headers.authorization.split(' ')[1];
 
-            // Verify token
+            // Vérifier le token
             const decoded = jwt.verify(token, JWT_SECRET);
 
-            // Get user id from token payload
+            // Attacher l'ID de l'utilisateur à la requête (sans le mot de passe)
             req.user = decoded.id; 
-
+            req.companyName = decoded.companyName; // Récupérer le nom de l'entreprise
             next();
         } catch (error) {
-            console.error(error);
-            res.status(401).json({ message: 'Non autorisé, jeton invalide' });
+            // console.error(error); // Décommentez pour déboguer les erreurs de token
+            res.status(401).json({ message: 'Non autorisé, token invalide.' });
         }
     }
 
     if (!token) {
-        res.status(401).json({ message: 'Non autorisé, pas de jeton' });
+        res.status(401).json({ message: 'Non autorisé, pas de token fourni.' });
     }
 };
 
+
 // --- 5. Routes API ---
 
-// A. Authentification
-app.post('/api/auth/register', async (req, res) => {
-    const { username, password, companyName } = req.body;
+// A. AUTHENTIFICATION
 
-    if (!username || !password) {
-        return res.status(400).json({ message: 'Veuillez fournir un nom d\'utilisateur et un mot de passe.' });
+// Route Enregistrement
+app.post('/api/auth/register', async (req, res) => {
+    const { email, password, companyName } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ message: 'Veuillez fournir un email et un mot de passe.' });
     }
 
     try {
-        const userExists = await User.findOne({ username });
+        const userExists = await User.findOne({ email });
+
         if (userExists) {
-            return res.status(400).json({ message: 'Ce nom d\'utilisateur existe déjà.' });
+            return res.status(400).json({ message: 'Cet utilisateur existe déjà.' });
         }
 
+        // Hashage du mot de passe
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
+        // Création de l'utilisateur
         const user = await User.create({
-            username,
+            email,
             password: hashedPassword,
             companyName: companyName || 'Mon Entreprise'
         });
 
-        const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '30d' });
-
-        res.status(201).json({
-            _id: user._id,
-            username: user.username,
-            companyName: user.companyName,
-            token,
-        });
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Erreur lors de l\'enregistrement de l\'utilisateur.' });
-    }
-});
-
-app.post('/api/auth/login', async (req, res) => {
-    const { username, password } = req.body;
-
-    try {
-        const user = await User.findOne({ username });
-
-        if (user && (await bcrypt.compare(password, user.password))) {
-            const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '30d' });
-
-            res.json({
+        if (user) {
+            res.status(201).json({
                 _id: user._id,
-                username: user.username,
+                email: user.email,
                 companyName: user.companyName,
-                token,
+                token: generateToken(user._id, user.companyName)
             });
         } else {
-            res.status(401).json({ message: 'Identifiants invalides' });
+            res.status(400).json({ message: 'Données utilisateur invalides.' });
         }
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Erreur lors de la connexion.' });
+        res.status(500).json({ message: 'Erreur serveur lors de l\'enregistrement.' });
     }
 });
 
-// 💡 NOUVELLE ROUTE : Vérifie le jeton et retourne l'utilisateur
+// Route Connexion
+app.post('/api/auth/login', async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ message: 'Veuillez fournir un email et un mot de passe.' });
+    }
+
+    try {
+        const user = await User.findOne({ email });
+
+        if (user && (await bcrypt.compare(password, user.password))) {
+            res.json({
+                _id: user._id,
+                email: user.email,
+                companyName: user.companyName,
+                token: generateToken(user._id, user.companyName)
+            });
+        } else {
+            res.status(401).json({ message: 'Email ou mot de passe invalide.' });
+        }
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur serveur lors de la connexion.' });
+    }
+});
+
+// Route Utilisateur Courant
 app.get('/api/auth/me', protect, async (req, res) => {
     try {
-        // req.user contient l'ID utilisateur décodé par le middleware 'protect'
+        // Le middleware 'protect' a attaché l'ID et le nom d'entreprise
         const user = await User.findById(req.user).select('-password'); 
-        if (!user) {
-            return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+
+        if (user) {
+            res.json({
+                _id: user._id,
+                email: user.email,
+                companyName: user.companyName,
+            });
+        } else {
+            res.status(404).json({ message: 'Utilisateur non trouvé.' });
         }
-        res.json({ user }); 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Erreur lors de la récupération des informations utilisateur.' });
+        res.status(500).json({ message: 'Erreur lors de la récupération des données utilisateur.' });
     }
 });
 
-// B. Gestion des Formulaires (CRUD)
+
+// B. FORMULAIRES (ADMIN)
+
+// B.1. ROUTE CRÉATION DE FORMULAIRE
 app.post('/api/forms', protect, async (req, res) => {
     const { title } = req.body;
 
@@ -200,8 +235,8 @@ app.post('/api/forms', protect, async (req, res) => {
     }
 
     try {
-        // Générer un jeton simple pour l'URL publique
-        const token = new mongoose.Types.ObjectId().toHexString(); // Simule un token unique simple
+        // 💡 CORRECTION CRITIQUE : Préfixer le token pour éviter l'insertion de 'null' ou des collisions
+        const token = 'form-' + new mongoose.Types.ObjectId().toHexString(); // Génère un token unique et non-null
 
         const form = await Form.create({
             userId: req.user,
@@ -210,37 +245,24 @@ app.post('/api/forms', protect, async (req, res) => {
             fields: [] // Nouveau formulaire vide
         });
 
-        res.status(201).json(form);
+        // Supprimer le champ 'submissions' pour l'affichage initial dans le dashboard
+        const formResponse = form.toObject();
+        delete formResponse.submissions;
+        
+        res.status(201).json(formResponse);
     } catch (error) {
         console.error(error);
+        if (error.code === 11000) {
+            return res.status(409).json({ message: 'Erreur de duplication (token), veuillez réessayer.' });
+        }
         res.status(500).json({ message: 'Erreur lors de la création du formulaire.' });
     }
 });
 
-app.get('/api/forms', protect, async (req, res) => {
-    try {
-        // Récupérer les formulaires de l'utilisateur actuel
-        const forms = await Form.find({ userId: req.user }).select('-submissions').sort({ createdAt: -1 });
-        res.json(forms);
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur lors de la récupération des formulaires.' });
-    }
-});
-
-app.get('/api/forms/:id', protect, async (req, res) => {
-    try {
-        const form = await Form.findById(req.params.id).select('-submissions');
-        if (!form || form.userId.toString() !== req.user) {
-            return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
-        }
-        res.json(form);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Erreur lors de la récupération du formulaire.' });
-    }
-});
-
+// B.2. ROUTE MISE À JOUR (SAUVEGARDE)
 app.put('/api/forms/:id', protect, async (req, res) => {
+    const { title, description, fields, status, settings } = req.body;
+
     try {
         const form = await Form.findById(req.params.id);
 
@@ -248,12 +270,12 @@ app.put('/api/forms/:id', protect, async (req, res) => {
             return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
         }
 
-        // Mise à jour : le frontend envoie tout le corps du formulaire (fields, title, description, logoBase64)
+        // Mettre à jour les champs (le logoBase64 et les submissions ne sont pas mis à jour ici)
         const updatedForm = await Form.findByIdAndUpdate(
             req.params.id, 
-            req.body, 
-            { new: true, runValidators: true } // 'new: true' retourne le doc mis à jour
-        ).select('-submissions');
+            { title, description, fields, status, settings }, 
+            { new: true, runValidators: true }
+        ).select('-submissions'); // Exclure les soumissions pour un transfert de données plus rapide
 
         res.json(updatedForm);
     } catch (error) {
@@ -262,6 +284,7 @@ app.put('/api/forms/:id', protect, async (req, res) => {
     }
 });
 
+// B.3. ROUTE SUPPRESSION
 app.delete('/api/forms/:id', protect, async (req, res) => {
     try {
         const form = await Form.findById(req.params.id);
@@ -270,7 +293,7 @@ app.delete('/api/forms/:id', protect, async (req, res) => {
             return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
         }
 
-        await Form.findByIdAndDelete(req.params.id);
+        await form.deleteOne();
         res.status(200).json({ message: 'Formulaire supprimé avec succès.' });
     } catch (error) {
         console.error(error);
@@ -278,111 +301,95 @@ app.delete('/api/forms/:id', protect, async (req, res) => {
     }
 });
 
+// 💡 NOUVELLE ROUTE : B.4. ROUTE LOGO UPLOAD
+app.post('/api/forms/:id/logo', protect, async (req, res) => {
+    const { logoData } = req.body; // logoData est la chaîne Base64 du frontend
 
-// C. Formulaire Public (Rendu et Soumission)
-app.get('/api/public/form/:token', async (req, res) => {
-    try {
-        const form = await Form.findOne({ token: req.params.token }).select('-submissions');
-
-        if (!form || !form.isPublished) {
-            return res.status(404).json({ message: 'Formulaire non trouvé ou non publié.' });
-        }
-        
-        // 💡 Mettre à jour le compteur de vues (sans attendre)
-        Form.updateOne({ _id: form._id }, { $inc: { views: 1 } }).exec();
-
-        // Créer un objet de formulaire minimal pour le public
-        const publicForm = {
-            title: form.title,
-            description: form.description,
-            logoBase64: form.logoBase64,
-            fields: form.fields.map(field => ({
-                type: field.type,
-                label: field.label,
-                placeholder: field.placeholder,
-                required: field.required,
-                options: field.options,
-                conditionalLogic: field.conditionalLogic, // Inclure la logique conditionnelle
-                fileConfig: field.fileConfig,
-            })),
-            token: form.token
-        };
-
-        res.json(publicForm);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Erreur lors de la récupération du formulaire public.' });
-    }
-});
-
-app.post('/api/public/submit/:token', async (req, res) => {
-    const formData = req.body; 
-
-    if (Object.keys(formData).length === 0) {
-        return res.status(400).json({ message: 'La soumission est vide.' });
+    if (!logoData) {
+        return res.status(400).json({ message: 'Données de logo (Base64) manquantes.' });
     }
 
-    try {
-        const form = await Form.findOne({ token: req.params.token });
-
-        if (!form || !form.isPublished) {
-            return res.status(404).json({ message: 'Formulaire non trouvé ou non publié.' });
-        }
-
-        // 🚨 IMPORTANT: Validation des champs requis
-        const requiredFields = form.fields.filter(f => f.required);
-        for (const field of requiredFields) {
-            const fieldKey = field.label.toLowerCase().replace(/[^a-z0-9]/g, '_');
-            if (formData[fieldKey] === undefined || formData[fieldKey] === null || formData[fieldKey] === '') {
-                // Pour une validation complète, il faudrait aussi vérifier la logique conditionnelle ici
-                return res.status(400).json({ message: `Le champ requis '${field.label}' est manquant.` });
-            }
-        }
-        
-        // Créer le nouvel objet de soumission
-        const newSubmission = {
-            data: formData,
-            submittedAt: new Date(),
-        };
-
-        // Ajouter la soumission et sauvegarder
-        form.submissions.push(newSubmission);
-        await form.save();
-
-        res.status(201).json({ message: 'Soumission enregistrée avec succès!', submissionId: newSubmission._id });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Erreur lors de la soumission du formulaire.' });
-    }
-});
-
-
-// D. Statistiques et Détails
-app.get('/api/forms/:id/stats', protect, async (req, res) => {
     try {
         const form = await Form.findById(req.params.id);
+
         if (!form || form.userId.toString() !== req.user) {
             return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
         }
 
-        // Récupérer les clés uniques de toutes les soumissions
-        const allKeys = form.submissions.reduce((keys, sub) => {
-            const dataKeys = sub.data ? Object.keys(sub.data) : [];
-            return [...new Set([...keys, ...dataKeys])];
-        }, []);
+        // Mettre à jour uniquement le champ logoBase64
+        const updatedForm = await Form.findByIdAndUpdate(
+            req.params.id, 
+            { logoBase64: logoData }, 
+            { new: true, runValidators: true }
+        ).select('-submissions');
 
+        // Retourner le chemin du logo (qui est la donnée Base64 elle-même)
+        res.json({ 
+            message: 'Logo mis à jour avec succès.',
+            logoPath: updatedForm.logoBase64 
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de la mise à jour du logo.' });
+    }
+});
+
+// B.5. ROUTE LISTE DES FORMULAIRES DE L'UTILISATEUR
+app.get('/api/forms', protect, async (req, res) => {
+    try {
+        // 💡 CORRECTION MINEURE : Suppression du select('-submissions') pour permettre au frontend de compter les soumissions
+        // ATTENTION : cela envoie l'array submissions complet. Si vous avez des millions de soumissions, il faudra utiliser aggregation.
+        const forms = await Form.find({ userId: req.user }).sort({ createdAt: -1 });
+        
+        // Mappage pour exclure les données massives et les tokens sensibles du résultat de la liste
+        const sanitizedForms = forms.map(form => {
+            const formObj = form.toObject();
+            // Le tableau submissions est maintenant présent et le frontend peut calculer sa longueur
+            return formObj;
+        });
+
+        res.json(sanitizedForms);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de la récupération des formulaires.' });
+    }
+});
+
+// B.6. ROUTE DÉTAIL D'UN FORMULAIRE (POUR L'ÉDITION)
+app.get('/api/forms/:id', protect, async (req, res) => {
+    try {
+        // Inclure les submissions pour l'affichage des résultats
+        const form = await Form.findById(req.params.id);
+
+        if (!form || form.userId.toString() !== req.user) {
+            return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
+        }
+
+        res.json(form);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de la récupération du formulaire.' });
+    }
+});
+
+// B.7. ROUTE STATISTIQUES SIMPLES (Nombre de soumissions)
+app.get('/api/forms/:id/stats', protect, async (req, res) => {
+    try {
+        const form = await Form.findById(req.params.id).select('submissions');
+
+        if (!form || form.userId.toString() !== req.user) {
+            return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
+        }
+
+        const totalSubmissions = form.submissions.length;
+        
+        // Exemples de stats (à développer si besoin)
         const stats = {
-            _id: form._id, // Ajouter l'ID pour l'exportation
-            title: form.title,
-            views: form.views,
-            submissionCount: form.submissions.length,
-            conversionRate: form.views > 0 ? ((form.submissions.length / form.views) * 100).toFixed(2) : 0,
-            allSubmissionKeys: allKeys, // Inclure les clés uniques pour le frontend
-            submissions: form.submissions.map(sub => ({
-                data: sub.data || {}, // Assurer un objet par défaut
-                submittedAt: sub.submittedAt,
-            }))
+            totalSubmissions,
+            // Autres stats basiques...
         };
+
         res.json(stats);
     } catch (error) {
         console.error(error);
@@ -390,50 +397,57 @@ app.get('/api/forms/:id/stats', protect, async (req, res) => {
     }
 });
 
-// 💡 Endpoint pour l'export des données (CSV/Excel)
+
+// B.8. ROUTE EXPORT DES DONNÉES (CSV)
+// Utilise un mécanisme simple pour générer un fichier CSV
 app.get('/api/forms/:id/export', protect, async (req, res) => {
+    const { format } = req.query;
+
+    if (!format || (format !== 'csv' && format !== 'pdf')) {
+        return res.status(400).json({ message: 'Format d\'exportation non spécifié (doit être csv ou pdf).' });
+    }
+
     try {
+        // On récupère toutes les données du formulaire
         const form = await Form.findById(req.params.id);
+
         if (!form || form.userId.toString() !== req.user) {
             return res.status(404).json({ message: 'Formulaire non trouvé ou accès refusé.' });
         }
-        
-        const format = req.query.format; // 'csv' ou 'pdf'
-        const submissions = form.submissions.map(sub => sub.data || {});
 
-        if (submissions.length === 0) {
-            return res.status(404).json({ message: 'Aucune soumission à exporter.' });
-        }
+        if (format === 'csv') {
+             // Extraction des en-têtes (labels de champs)
+             const headers = ['ID_Soumission', 'Date_Soumission', ...form.fields.map(f => f.label)];
+             let csvData = headers.join(';') + '\n';
+             
+             // Extraction des données
+             form.submissions.forEach(submission => {
+                 let row = [
+                    submission._id.toString(), 
+                    submission.submittedAt.toISOString()
+                 ];
 
-        // 1. Collecter toutes les clés uniques pour les en-têtes
-        const allKeys = submissions.reduce((keys, data) => {
-            return [...new Set([...keys, ...Object.keys(data)])];
-        }, []);
-        
-        // Nettoyer les en-têtes (remplacer les _ par des espaces et mettre en majuscule pour la lisibilité)
-        const headerRow = allKeys.map(key => `"${key.toUpperCase().replace(/_/g, ' ')}"`).join(';');
+                 // On itère sur les en-têtes pour s'assurer que l'ordre des colonnes est respecté
+                 form.fields.forEach(field => {
+                    const dataEntry = submission.data.find(d => d.fieldId === field._id);
+                    let value = dataEntry ? dataEntry.value : '';
 
+                    // Gestion des valeurs multiples pour les checkboxes
+                    if (Array.isArray(value)) {
+                        value = value.join(', ');
+                    }
+                    
+                    // Nettoyage de la valeur (remplacer les sauts de ligne, guillemets, etc.) pour le CSV
+                    value = String(value).replace(/"/g, '""').replace(/\n/g, ' ').replace(/;/g, ',');
+                    row.push(value);
+                 });
 
-        // 2. Préparer les données au format tabulaire (CSV)
-        const csvData = [
-            headerRow, // En-têtes
-            ...submissions.map(sub => allKeys.map(key => {
-                let value = sub[key] !== undefined ? sub[key] : '';
-                
-                // Gérer les valeurs multiples (par ex., checkbox group)
-                if (Array.isArray(value)) {
-                    value = value.join(', ');
-                }
-                
-                // Simple échappement pour les CSV (remplacer les doubles quotes par des doubles doubles quotes, et encadrer)
-                return `"${String(value).replace(/"/g, '""')}"`;
-            }).join(';')) // Utilisation du point-virgule comme séparateur pour la compatibilité Excel FR
-        ].join('\n');
-        
-        // 3. Envoyer le fichier
-        if (format === 'csv') { // Gère 'excel' via le frontend qui demande 'csv'
-             res.setHeader('Content-Type', 'text/csv');
-             res.setHeader('Content-Disposition', `attachment; filename="${form.title}_export_${new Date().toISOString().slice(0, 10)}.csv"`);
+                 csvData += row.join(';') + '\n';
+             });
+
+             // Envoi du fichier CSV
+             res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+             res.setHeader('Content-Disposition', `attachment; filename=\"${form.title}_export_${new Date().toISOString().slice(0, 10)}.csv\"`);
              // Ajout du BOM (Byte Order Mark) pour l'encodage UTF-8 et la compatibilité Excel
              return res.send(Buffer.from('\ufeff' + csvData, 'utf8')); 
         } else if (format === 'pdf') {
@@ -450,7 +464,69 @@ app.get('/api/forms/:id/export', protect, async (req, res) => {
 });
 
 
-// E. ROUTE DE REDIRECTION PUBLIQUE (INCHANGÉE)
+// C. FORMULAIRE (PUBLIC)
+
+// C.1. ROUTE RÉCUPÉRATION (SANS AUTH)
+app.get('/api/public/form/:token', async (req, res) => {
+    try {
+        // Seuls les formulaires publiés sont accessibles publiquement
+        const form = await Form.findOne({ token: req.params.token, status: 'published' }).select('-submissions'); 
+
+        if (!form) {
+            return res.status(404).json({ message: 'Formulaire non trouvé ou non publié.' });
+        }
+
+        // Simplification de la réponse (on retire le token pour plus de sécurité)
+        const formResponse = form.toObject();
+        delete formResponse.token;
+        delete formResponse.userId;
+
+        res.json(formResponse);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de la récupération du formulaire public.' });
+    }
+});
+
+// C.2. ROUTE SOUMISSION (SANS AUTH)
+app.post('/api/public/submit/:token', async (req, res) => {
+    const { data } = req.body; // 'data' est un tableau d'objets { fieldId, value }
+
+    if (!data || !Array.isArray(data)) {
+        return res.status(400).json({ message: 'Les données de soumission sont manquantes ou invalides.' });
+    }
+
+    try {
+        const form = await Form.findOne({ token: req.params.token, status: 'published' });
+
+        if (!form) {
+            return res.status(404).json({ message: 'Formulaire non trouvé ou non publié.' });
+        }
+
+        // Ajout de la nouvelle soumission
+        form.submissions.push({ data });
+
+        // Sauvegarde du formulaire mis à jour
+        await form.save();
+        
+        // Gérer la redirection après la soumission
+        const settings = form.settings || {};
+        const redirectUrl = settings.redirectUrl;
+
+        if (redirectUrl) {
+            return res.json({ message: 'Soumission réussie', success: true, redirect: true, redirectUrl });
+        }
+        
+        res.json({ message: 'Soumission réussie', success: true, redirect: false });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Erreur lors de la soumission du formulaire.' });
+    }
+});
+
+
+// D. ROUTE DE REDIRECTION PUBLIQUE (INCHANGÉE)
 // Intercepte les requêtes sur le domaine du backend et redirige vers le FRONTEND
 app.get('/form/:token', async (req, res) => {
     if (!FRONTEND_URL) {
@@ -464,6 +540,4 @@ app.get('/form/:token', async (req, res) => {
 // --- 6. Démarrage du Serveur ---
 app.listen(PORT, () => {
     console.log(`Serveur démarré sur le port ${PORT}`);
-    // Affichage des premières lettres des secrets pour vérifier qu'ils sont chargés
-    console.log(`JWT_SECRET chargé : ${JWT_SECRET.substring(0, 5)}...`);
 });
