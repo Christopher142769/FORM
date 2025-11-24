@@ -1,4 +1,4 @@
-// server/server.js - TOUT LE BACKEND EN UN SEUL FICHIER (FINAL + ENV VARS V3)
+// server/server.js - TOUT LE BACKEND EN UN SEUL FICHIER (FINAL + ENV VARS V3) + REQUIRED FIELD
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -39,9 +39,9 @@ mongoose.connect(MONGODB_URI)
     .catch(err => console.error('Erreur de connexion à MongoDB:', err));
 
 
-// --- 3. Modèles Mongoose (INCHANGÉ) ---
+// --- 3. Modèles Mongoose ---
 
-// Schéma pour l'Utilisateur (Entreprise)
+// Schéma pour l'Utilisateur (Entreprise) (INCHANGÉ)
 const UserSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
@@ -64,7 +64,9 @@ const FormSchema = new mongoose.Schema({
     title: { type: String, required: true },
     fields: [{
         label: { type: String, required: true },
-        type: { type: String, required: true, enum: ['text', 'textarea', 'email', 'number', 'checkbox'] }
+        type: { type: String, required: true, enum: ['text', 'textarea', 'email', 'number', 'checkbox'] },
+        // 💡 MODIFICATION : Ajout du champ 'required'
+        required: { type: Boolean, default: true } 
     }],
     logoPath: { type: String, default: '' }, 
     urlToken: { type: String, unique: true },
@@ -103,7 +105,7 @@ const protect = (req, res, next) => {
 
 // --- 5. Routes API ---
 
-// A. Authentification (INCHANGÉ)
+// A. Authentification (INCHANGÉES)
 app.post('/api/auth/register', async (req, res) => {
     try {
         const { email, password, companyName } = req.body;
@@ -144,7 +146,7 @@ app.get('/api/auth/me', protect, async (req, res) => {
     }
 });
 
-// B. Gestion des Formulaires (Dashboard)
+// B. Gestion des Formulaires (Dashboard) (INCHANGÉ, mais gère implicitement le nouveau champ 'required')
 app.post('/api/forms', protect, async (req, res) => {
     try {
         const { _id, title, fields } = req.body;
@@ -155,7 +157,7 @@ app.post('/api/forms', protect, async (req, res) => {
             form = await Form.findOne({ _id, userId: req.user });
             if (!form) return res.status(404).json({ message: 'Formulaire non trouvé.' });
             form.title = title;
-            form.fields = fields;
+            form.fields = fields; // Mongoose acceptera la nouvelle structure avec 'required'
         } else {
             isNew = true;
             form = new Form({ userId: req.user, title, fields });
@@ -232,20 +234,20 @@ app.post('/api/forms/:id/logo', protect, async (req, res) => {
 // C. Routes Publiques (Soumission) (INCHANGÉES)
 app.get('/api/public/form/:token', async (req, res) => {
     try {
+        // Sélectionne tous les champs nécessaires, y compris la nouvelle propriété 'required' dans 'fields'
         const form = await Form.findOne({ urlToken: req.params.token }).select('title fields logoPath urlToken views submissions');
         if (!form) {
             return res.status(404).json({ message: 'Formulaire non trouvé.' });
         }
         
-        // 🚨 Assurez-vous que cette ligne est correcte pour éviter un 500
         form.views = (form.views || 0) + 1;
         await form.save();
         
-        // Renvoie uniquement les champs publics
+        // Renvoie uniquement les champs publics (qui incluent maintenant 'fields' avec 'required')
         const publicForm = {
             _id: form._id,
             title: form.title,
-            fields: form.fields,
+            fields: form.fields, // Contient la propriété 'required'
             logoPath: form.logoPath,
         };
 
@@ -263,6 +265,10 @@ app.post('/api/public/form/:token/submit', async (req, res) => {
         if (!form) {
             return res.status(404).json({ message: 'Formulaire non trouvé.' });
         }
+
+        // NOTE: La validation des champs requis doit être gérée principalement par le frontend
+        // via l'attribut HTML 'required', mais une validation backend complète
+        // pourrait être ajoutée ici si nécessaire.
 
         form.submissions.push({ data: submissionData });
         await form.save();
