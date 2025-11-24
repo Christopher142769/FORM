@@ -1,4 +1,4 @@
-// client/src/App.js - V23 FINAL : Affichage Logo/Details + Champs Date/Signature
+// client/src/App.js - V24 FINAL : Correction Submission Schéma [String]
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
@@ -53,7 +53,7 @@ const Loader = () => (
     </div>
 );
 
-// --- MODALE DE DÉTAILS DE SOUMISSION (Modifié) ---
+// --- MODALE DE DÉTAILS DE SOUMISSION (Inchangé) ---
 const SubmissionDetailsModal = ({ show, handleClose, submission, formDetails }) => {
     if (!submission || !formDetails) return null;
 
@@ -67,6 +67,7 @@ const SubmissionDetailsModal = ({ show, handleClose, submission, formDetails }) 
     const dataEntries = submission.data.map(d => {
         let displayValue = d.value;
 
+        // 💡 Gestion de la valeur qui est maintenant un tableau de chaînes dans le backend
         if (Array.isArray(d.value)) {
             displayValue = d.value.join(', ');
         } else if (typeof d.value === 'boolean') {
@@ -246,9 +247,7 @@ const ConditionalLogicEditor = ({ form, setForm }) => {
                         >
                             <option value="">Sélectionnez une valeur...</option>
                             {currentTriggerField.options.map((option, index) => (
-                                <option key={index} value={option}>
-                                    {option}
-                                </option>
+                                <option key={index} value={option}>{option}</option>
                             ))}
                         </Form.Select>
                     </Col>
@@ -444,7 +443,7 @@ const Auth = ({ onAuthSuccess, apiUrl, navigate }) => {
     );
 };
 
-// --- PARTIE 2 : CONSTRUCTEUR DE FORMULAIRE (Modifié) ---
+// --- PARTIE 2 : CONSTRUCTEUR DE FORMULAIRE (Inchangé) ---
 const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => {
     const [fieldLabel, setFieldLabel] = useState('');
     // 💡 MODIF : Ajout des nouveaux types de champs
@@ -838,7 +837,7 @@ const FormBuilder = ({ form, setForm, onSave, onUploadLogo, token, apiUrl }) => 
     );
 };
 
-// --- PARTIE 3 : DASHBOARD (Modifié) ---
+// --- PARTIE 3 : DASHBOARD (Inchangé) ---
 const Dashboard = ({ user, token, apiUrl }) => {
     const [forms, setForms] = useState([]);
     const [currentView, setCurrentView] = useState('list'); 
@@ -1317,7 +1316,7 @@ const Dashboard = ({ user, token, apiUrl }) => {
     );
 };
 
-// --- PARTIE 4 : PAGE PUBLIQUE DE FORMULAIRE (Modifié) ---
+// --- PARTIE 4 : PAGE PUBLIQUE DE FORMULAIRE (Corrigé) ---
 const PublicFormPage = ({ match, apiUrl }) => {
     const [formDetails, setFormDetails] = useState(null);
     const [formData, setFormData] = useState({});
@@ -1494,7 +1493,8 @@ const PublicFormPage = ({ match, apiUrl }) => {
                 
                 dataToSubmitArray.push({
                     fieldId: String(field._id),
-                    value: isChecked, // boolean
+                    // 💡 CORRECTION : Convertir le booléen en String pour plus de compatibilité avec le schéma [String]
+                    value: String(isChecked), 
                 });
                 continue;
             }
@@ -1557,10 +1557,12 @@ const PublicFormPage = ({ match, apiUrl }) => {
             if ((value === '' || value === null || value === undefined) && value !== 0) {
                 continue;
             }
-    
+            
+            // Si c'est une valeur simple, on l'envoie comme une chaîne unique
             dataToSubmitArray.push({
                 fieldId: String(field._id),
-                value,
+                // 💡 Conversion en chaîne unique pour les champs qui n'ont pas renvoyé un tableau
+                value: String(value), 
             });
         }
     
