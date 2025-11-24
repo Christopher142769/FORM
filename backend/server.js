@@ -1,4 +1,4 @@
-// server/server.js - BACKEND FINAL MODIFIÉ : PUBLICATION PAR DÉFAUT
+// server/server.js - BACKEND FINAL MODIFIÉ : PUBLICATION PAR DÉFAUT & CORRECTION ROUTE SUBMISSION
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -325,6 +325,8 @@ app.post('/api/forms/:id/logo', protect, async (req, res) => {
         ).select('-submissions');
 
         // Retourner le chemin du logo (qui est la donnée Base64 elle-même)
+        // NOTE: La propriété retournée ici est 'logoPath' (pour la compatibilité)
+        // MAIS le frontend doit lire 'logoBase64' dans la récupération publique.
         res.json({ 
             message: 'Logo mis à jour avec succès.',
             logoPath: updatedForm.logoBase64 
@@ -480,7 +482,8 @@ app.get('/api/public/form/:token', async (req, res) => {
         delete formResponse.token;
         delete formResponse.userId;
 
-        res.json(formResponse);
+        // NOTE: formResponse contient maintenant la propriété logoBase64 pour le frontend
+        res.json(formResponse); 
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Erreur lors de la récupération du formulaire public.' });
@@ -488,7 +491,8 @@ app.get('/api/public/form/:token', async (req, res) => {
 });
 
 // C.2. ROUTE SOUMISSION (SANS AUTH)
-app.post('/api/public/submit/:token', async (req, res) => {
+// ⚠️ CORRECTION CRITIQUE : Alignement de l'URL sur ce que le frontend envoie (/api/public/form/:token/submit)
+app.post('/api/public/form/:token/submit', async (req, res) => { 
     const { data } = req.body; // 'data' est un tableau d'objets { fieldId, value }
 
     if (!data || !Array.isArray(data)) {
@@ -499,6 +503,7 @@ app.post('/api/public/submit/:token', async (req, res) => {
         const form = await Form.findOne({ token: req.params.token, status: 'published' });
 
         if (!form) {
+            // Le 404 est correct car si le formulaire est non publié ou introuvable, la soumission échoue
             return res.status(404).json({ message: 'Formulaire non trouvé ou non publié.' });
         }
 
